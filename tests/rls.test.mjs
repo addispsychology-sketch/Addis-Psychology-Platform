@@ -12,6 +12,11 @@ test('migration enforces participant access, sender identity, and approval privi
       create role authenticated;
       create schema auth;
       create schema realtime;
+      create schema storage;
+      create table storage.objects(id uuid default gen_random_uuid(), bucket_id text, name text);
+      alter table storage.objects enable row level security;
+      grant usage on schema storage to authenticated;
+      grant select, insert, update, delete on storage.objects to authenticated;
       create table auth.users(id uuid primary key);
       create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
       create table realtime.messages(id bigint, extension text);
@@ -29,6 +34,32 @@ test('migration enforces participant access, sender identity, and approval privi
     assert.equal(privileges.rows[0].anonymous_access, false);
     const policyTests = readFileSync(new URL('../supabase/tests/rls.sql', import.meta.url), 'utf8');
     await db.exec(policyTests.replace('rollback;', () => `
+      reset role;
+      set local role authenticated;
+      select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',true);
+      insert into storage.objects(bucket_id,name) values ('voice-notes','00000000-0000-4000-8000-000000000004/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000005');
+      do $$ begin
+        if exists(select 1 from storage.objects) then raise exception 'FAIL: unpublished upload readable'; end if;
+        begin
+          insert into storage.objects(bucket_id,name) values ('voice-notes','00000000-0000-4000-8000-000000000004/00000000-0000-4000-8000-000000000003/00000000-0000-4000-8000-000000000005');
+          raise exception 'FAIL: forged upload owner accepted';
+        exception when insufficient_privilege then null; end;
+      end $$;
+      insert into public.messages(conversation_id,sender_id,audio_url) values ('00000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000001','/api/voice?key=00000000-0000-4000-8000-000000000004%2F00000000-0000-4000-8000-000000000001%2F00000000-0000-4000-8000-000000000005&storage=supabase');
+      select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',true);
+      do $$ begin
+        if not exists(select 1 from storage.objects) then raise exception 'Recipient cannot read voice'; end if;
+        delete from storage.objects;
+        if not exists(select 1 from storage.objects) then raise exception 'FAIL: recipient deleted voice'; end if;
+      end $$;
+      select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000003',true);
+      do $$ begin
+        if exists(select 1 from storage.objects) then raise exception 'FAIL: unrelated user can read voice'; end if;
+        begin
+          insert into storage.objects(bucket_id,name) values ('voice-notes','00000000-0000-4000-8000-000000000004/00000000-0000-4000-8000-000000000003/00000000-0000-4000-8000-000000000005');
+          raise exception 'FAIL: unrelated user can upload voice';
+        exception when insufficient_privilege then null; end;
+      end $$;
       reset role;
       insert into realtime.messages(id, extension) values (1, 'broadcast');
       set local role authenticated;

@@ -1,5 +1,15 @@
 # Set up your live messaging app
 
+## Current storage choice
+
+Voice notes now default to private **Supabase Storage** (`VOICE_STORAGE=supabase`), so Cloudflare billing is not required. Create a private `voice-notes` bucket once, with a 50 MB file limit and allowed MIME types `audio/webm`, `audio/ogg`, and `audio/mp4`. This is already done in the connected project. Apply all migrations in filename order for a new project; they include storage access policies.
+
+Uploads go directly from the browser to storage using a signed upload token. Only an authenticated conversation participant can upload under their own user ID; playback requires a saved message visible to the requester. Supabase messages hold the protected reference, not audio bytes. Supabase upload tokens last two hours; playback links last one hour. The Free plan's 1 GB storage and separate cached/uncached egress quotas apply. There is no promise of unlimited free storage or bandwidth.
+
+The R2 implementation remains available by setting `VOICE_STORAGE=r2` and configuring the R2 variables below. Its per-file limit remains 100 MB. Existing message references identify their storage provider, so changing the provider for new uploads does not silently redirect older recordings. Keep the original provider available to play its existing messages.
+
+See `deployment/STATUS.md` for actual connected-service status. The R2-specific instructions below are optional for a later switch.
+
 > **Prefer the assisted GitHub setup:** start with `START_HERE.md`. The repository now includes an ordered release workflow, so you do not need to follow this manual procedure or paste SQL yourself. The instructions below remain as a technical/manual alternative. Vercel's native Git auto-deploy is disabled in favor of the GitHub workflow; follow `deployment/CONNECTIONS.md` to enable it.
 
 The code is prepared, but it does not create cloud accounts or deploy anything automatically. Follow these steps in order. You can complete Supabase and test text messaging before creating R2 or TURN accounts.
@@ -10,9 +20,9 @@ The code is prepared, but it does not create cloud accounts or deploy anything a
 - `/account` provides email/password registration and sign-in.
 - Supabase stores practice profiles, private credential applications, conversations, and messages. RLS enforces conversation membership and sender identity.
 - A client starts a conversation from the therapist directory. A therapist selects that client's conversation in the portal.
-- Voice recording prefers WebM/Opus at 32 kbps, with Ogg/Opus or MP4 fallback when supported. The browser uploads directly to private R2 storage using a five-minute presigned PUT URL. Supabase stores a durable protected playback URL, not audio bytes or an expiring R2 URL. Playback resolves to a one-hour signed GET URL after checking message access.
+- Voice recording prefers WebM/Opus at 32 kbps, with Ogg/Opus or MP4 fallback when supported. The browser uploads directly to the selected private storage provider. Supabase stores a durable protected playback URL, not audio bytes or an expiring download URL. Playback resolves to a one-hour signed URL after checking message access.
 - Audio calls use private Supabase Broadcast channels and WebRTC. Both participants must be signed in with the app open. There are no background push notifications or missed-call records. An unanswered call ends after 45 seconds.
-- No prepaid credit or recording-duration limit is enforced. A file must be under 100 MB; recordings accumulate in browser memory. Storage, bandwidth, and service quotas still apply. Failed uploads may leave unreferenced objects in R2; review storage usage and add an orphan cleanup job before scaling.
+- No prepaid credit or recording-duration limit is enforced. Files are limited to 50 MB on Supabase or 100 MB on R2; recordings accumulate in browser memory. Storage, bandwidth, and service quotas still apply. Failed uploads may leave unreferenced objects; review storage usage and add an orphan cleanup job before scaling.
 
 The old demo records and automatic replies are removed. On first load, the app removes its known legacy `addis-platform-v1` through `v4` local-storage keys; it does not clear unrelated browser storage. A fresh database has no contacts or messages.
 

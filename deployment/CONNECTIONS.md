@@ -2,6 +2,10 @@
 
 This is for the assistant/operator configuring the deployment, not a list of tasks the owner needs to carry out manually. The owner-facing instructions are in `START_HERE.md`.
 
+**Current choice:** `VOICE_STORAGE=supabase` in both GitHub variables and Vercel. Cloudflare credentials and R2 variables are optional and needed only with `VOICE_STORAGE=r2`. For Supabase, create a private `voice-notes` bucket once via the Storage dashboard/API, restricting files to 50 MB and MIME types `audio/webm`, `audio/ogg`, `audio/mp4`. This bucket and its policy migration are already configured in the connected project. Never make it public. The release script manages auth/private channels and migrations, but does not create the Supabase bucket.
+
+The Supabase project is also connected to an older application. Preserve its default Site URL and existing redirects. New app registrations pass their own explicitly allowed `/account` callback.
+
 ## Account bootstrap
 
 - Complete owner-approved account creation and establish authorized Supabase, Vercel, and Cloudflare access. Do not imply that a connector can create tokens or configure GitHub secrets unless its actual tools support those operations.

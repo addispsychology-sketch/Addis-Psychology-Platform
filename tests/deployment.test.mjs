@@ -3,10 +3,21 @@ import assert from 'node:assert/strict';
 import { configuration, configureCloud } from '../scripts/configure-cloud.mjs';
 
 const env = {
+  VOICE_STORAGE: 'r2',
   VERCEL_TOKEN: 'test-token', VERCEL_ORG_ID: 'test-org', VERCEL_PROJECT_ID: 'test-project',
   SUPABASE_ACCESS_TOKEN: 'test-token', SUPABASE_DB_PASSWORD: 'test-password', SUPABASE_PROJECT_ID: 'abcdefghijklmnopqrst',
   CLOUDFLARE_API_TOKEN: 'test-token', R2_ACCOUNT_ID: 'a'.repeat(32), R2_BUCKET_NAME: 'test-private-bucket', APP_URL: 'https://app.example.com',
 };
+
+test('Supabase voice storage needs no Cloudflare credentials or requests', async () => {
+  const settings = { ...env, VOICE_STORAGE: 'supabase', CLOUDFLARE_API_TOKEN: '', R2_ACCOUNT_ID: '', R2_BUCKET_NAME: '' };
+  const cloud = fakeCloud();
+  await configureCloud(settings, async (url, options) => {
+    assert.equal(new URL(url).hostname, 'api.supabase.com');
+    return cloud.request(url, options);
+  });
+  assert.equal(cloud.state().auth.site_url, 'http://localhost:3000', 'preserve the older application default URL');
+});
 
 function fakeCloud({ publicBucket = false, exists = false, failure = false } = {}) {
   let auth = { site_url: 'http://localhost:3000', uri_allow_list: 'http://localhost:3000/account', password_min_length: 16, smtp_host: 'keep-existing-mail.example' };
