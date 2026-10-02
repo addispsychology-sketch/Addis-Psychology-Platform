@@ -65,7 +65,7 @@ export function useMessaging() {
         return c ? [{ id: m.id, conversationId: c.id, therapist: c.therapist_id, from: m.sender_id === c.client_id ? 'client' as const : 'therapist' as const, text: m.text || undefined, audio: m.audio_url || undefined, durationSeconds: m.duration_seconds, at: m.created_at }] : [];
       }));
     }
-    const channel = db.channel(`messages:${userId}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => void refresh()).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, () => void refresh()).subscribe(status => { if (status === 'SUBSCRIBED') void refresh(); });
+    const channel = db.channel(`messages:${userId}`, { config: { private: true } }).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => void refresh()).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, () => void refresh()).subscribe(status => { if (status === 'SUBSCRIBED') void refresh(); });
     void refresh();
     const timer = setInterval(() => void refresh(), 15000);
     return () => { alive = false; clearInterval(timer); void db.removeChannel(channel); };

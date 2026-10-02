@@ -45,6 +45,14 @@ test('migration enforces participant access, sender identity, and approval privi
         if not exists(select 1 from realtime.messages) then raise exception 'Participant cannot receive signaling'; end if;
       end $$;
       insert into realtime.messages(id,extension) values (2,'broadcast');
+      select set_config('realtime.topic','messages:00000000-0000-4000-8000-000000000001',true);
+      do $$ begin
+        if not exists(select 1 from realtime.messages) then raise exception 'User cannot join own message topic'; end if;
+      end $$;
+      select set_config('realtime.topic','messages:00000000-0000-4000-8000-000000000003',true);
+      do $$ begin
+        if exists(select 1 from realtime.messages) then raise exception 'FAIL: user can join another message topic'; end if;
+      end $$;
       rollback;
     `));
     const result = await db.query('select count(*)::int as count from public.messages');
