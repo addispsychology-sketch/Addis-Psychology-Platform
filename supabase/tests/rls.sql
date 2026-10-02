@@ -35,7 +35,7 @@ end $$;
 select set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000003', true);
 do $$ begin
   if exists(select 1 from public.messages where conversation_id = '00000000-0000-4000-8000-000000000004') then raise exception 'FAIL: unrelated user can read messages'; end if;
-  if public.is_participant('00000000-0000-4000-8000-000000000004') then raise exception 'FAIL: unrelated user is a participant'; end if;
+  if private.is_participant('00000000-0000-4000-8000-000000000004') then raise exception 'FAIL: unrelated user is a participant'; end if;
   begin
     insert into public.messages(conversation_id,sender_id,text) values ('00000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000003','Unauthorized');
     raise exception 'FAIL: unrelated user can write messages';

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 
 test('migration enforces participant access, sender identity, and approval privileges', async () => {
@@ -21,7 +21,12 @@ test('migration enforces participant access, sender identity, and approval privi
       grant select, insert on realtime.messages to authenticated;
       create publication supabase_realtime;
     `);
-    await db.exec(readFileSync(new URL('../supabase/migrations/001_messaging.sql', import.meta.url), 'utf8'));
+    const migrations = new URL('../supabase/migrations/', import.meta.url);
+    for (const file of readdirSync(migrations).filter(name => name.endsWith('.sql')).sort()) {
+      await db.exec(readFileSync(new URL(file, migrations), 'utf8'));
+    }
+    const privileges = await db.query("select has_function_privilege('anon', 'private.is_participant(uuid)', 'execute') as anonymous_access");
+    assert.equal(privileges.rows[0].anonymous_access, false);
     const policyTests = readFileSync(new URL('../supabase/tests/rls.sql', import.meta.url), 'utf8');
     await db.exec(policyTests.replace('rollback;', () => `
       reset role;

@@ -21,7 +21,7 @@ The old demo records and automatic replies are removed. On first load, the app r
 ## 1. Create Supabase
 
 1. Open [Supabase](https://supabase.com/), create an account and a new project. Keep the database password in your password manager.
-2. In the project SQL Editor, create a new query. Paste all of `supabase/migrations/001_messaging.sql` and run it **once in the new project**. It creates the tables, policies, indexes, and Realtime publication entries. It does not insert sample users.
+2. In a new project only, run each SQL file in `supabase/migrations/` in filename order, once each. These create the tables, access policies, indexes, and Realtime publication entries without sample users. The connected project already has these migrations; do not run them again there.
 3. In Realtime settings, disable **Allow public access** so private channel authorization is required. This is required for the call signaling policies. See [Realtime authorization](https://supabase.com/docs/guides/realtime/authorization).
 4. Under Authentication, enable email/password sign-in and keep email confirmation enabled. Set a minimum password length of 12.
 5. Under Authentication → URL Configuration, initially set Site URL to `http://localhost:3000`. Add `http://localhost:3000/account` as an allowed redirect URL.
