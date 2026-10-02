@@ -57,7 +57,7 @@ function ScheduleInner() {
       </div>
 
       {isQuick && day && time && (
-        <div style={{ background: '#000', color: '#fff', padding: '14px 20px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+        <div style={{ background: 'var(--ink)', color: 'var(--paper)', padding: '14px 20px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
           <span style={{ fontSize: '14px' }}>
             ⚡ {t('Quick book: first available slot pre-selected below. Confirm when ready.', 'ፈጣን ቀጠሮ: የመጀመሪያው ሰዓት ተመርጧል። ዝግጁ ሲሆኑ ያረጋግጡ።')}
           </span>
@@ -83,11 +83,11 @@ function ScheduleInner() {
 
       {/* Pricing summary both modes */}
       <div style={{ display: 'flex', gap: '12px', margin: '16px 0', flexWrap: 'wrap' }}>
-        <div style={{ border: `3px solid ${medium === 'online' ? '#000' : '#ccc'}`, padding: '12px 18px', minWidth: '160px' }}>
+        <div style={{ border: `3px solid ${medium === 'online' ? 'var(--ink)' : 'var(--rule-soft)'}`, padding: '12px 18px', minWidth: '160px' }}>
           <small style={{ display: 'block', fontFamily: 'Space Mono,monospace', fontSize: '10px', textTransform: 'uppercase', marginBottom: '4px' }}>💻 {t('Online', 'ኦንላይን')}</small>
           <strong style={{ fontSize: '22px' }}>{money(discountedPrice(conf.online, conf.discount))}</strong>
         </div>
-        <div style={{ border: `3px solid ${medium === 'inperson' ? '#000' : '#ccc'}`, padding: '12px 18px', minWidth: '160px' }}>
+        <div style={{ border: `3px solid ${medium === 'inperson' ? 'var(--ink)' : 'var(--rule-soft)'}`, padding: '12px 18px', minWidth: '160px' }}>
           <small style={{ display: 'block', fontFamily: 'Space Mono,monospace', fontSize: '10px', textTransform: 'uppercase', marginBottom: '4px' }}>🏥 {t('In-person', 'በአካል')}</small>
           <strong style={{ fontSize: '22px' }}>{money(discountedPrice(conf.inperson, conf.discount))}</strong>
         </div>

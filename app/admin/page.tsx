@@ -1,45 +1,26 @@
 'use client';
+
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePlatform, statusLabel } from '@/components/Platform';
 import { Header, Footer, Photo } from '@/components/Shell';
 import { dateKey } from '@/lib/calendar';
+import { motion } from 'framer-motion';
 
-const ADMIN_PASS = 'admin2024';
 
 type Tab = 'overview' | 'therapists' | 'bookings' | 'messages' | 'packages' | 'settings';
 
 export default function AdminPortal() {
-  const { t, people, state, messages, money, date, settings, updateAppointment, updateSettings } = usePlatform();
-  const [auth, setAuth] = useState(false);
-  const [pass, setPass] = useState('');
-  const [authError, setAuthError] = useState('');
+  const { t, people, state, messages, money, date, settings, updateAppointment, deleteTherapist } = usePlatform();
+  const auth = false; // Administration is restricted to the Supabase dashboard until server roles are implemented.
   const [tab, setTab] = useState<Tab>('overview');
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // ── Login gate ──────────────────────────────────────────────
-  if (!auth) {
-    return (
-      <>
-        <Header />
-        <main className="platform-main" style={{ maxWidth: '480px' }}>
-          <span className="eyebrow">{t('ADMIN ACCESS', 'አስተዳዳሪ')}</span>
-          <h1>{t('Admin Portal', 'አስተዳዳሪ ፖርታል')}</h1>
-          <p>{t('Enter the admin password to continue. This is a demonstration — no real accounts exist.', 'ለቀጣይ የአስተዳዳሪ የይለፍ ቃል ያስገቡ። ይህ ማሳያ ነው።')}</p>
-          <form onSubmit={e => { e.preventDefault(); if (pass === ADMIN_PASS) { setAuth(true); setAuthError(''); } else setAuthError(t('Incorrect password. Try: admin2024', 'ተሳስቷል። ሞክሩ: admin2024')); }}>
-            <label>
-              {t('Admin password', 'የይለፍ ቃል')}
-              <input type="password" value={pass} onChange={e => setPass(e.target.value)} placeholder="••••••••" autoComplete="current-password" />
-            </label>
-            {authError && <p role="alert" style={{ color: '#c00', fontSize: '13px' }}>{authError}</p>}
-            <button className="solid" type="submit">{t('Enter admin portal', 'ፖርታሉን ክፈት')}</button>
-          </form>
-          <p className="muted" style={{ marginTop: '24px' }}>{t('Hint: admin2024', 'ፍንጭ: admin2024')}</p>
-        </main>
-        <Footer />
-      </>
-    );
-  }
+  // Booking filters & search
+  const [bookingFilter, setBookingFilter] = useState<'all' | 'pending' | 'confirmed' | 'cancelled' | 'completed'>('all');
+  const [bookingSearch, setBookingSearch] = useState('');
+  const [therapistSearch, setTherapistSearch] = useState('');
+
+  if (!auth) return <><Header /><main className="platform-main" style={{ maxWidth: '520px', padding: '60px 24px' }}><span className="eyebrow">PLATFORM GOVERNANCE</span><h1>Admin Console</h1><div style={{ border: '3px solid var(--ink)', padding: '24px', background: 'var(--surface-soft)' }}><p>Web administration is not enabled. The project owner manages practice approvals in the Supabase dashboard.</p><Link href="/">Return home</Link></div></main><Footer /></>;
 
   // ── Computed stats ───────────────────────────────────────────
   const today = dateKey();
@@ -48,33 +29,52 @@ export default function AdminPortal() {
   const totalRevenue = state.receipts.reduce((n, r) => n + r.amount, 0);
   const pendingAppts = state.appointments.filter(a => a.status === 'pending');
   const allMessages = messages;
+  const registeredCount = state.registeredTherapists?.length || 0;
 
-  const tabs: [Tab, string][] = [
+  const tabs: [Tab, string, number?][] = [
     ['overview', t('Overview', 'አጠቃላይ')],
-    ['therapists', t('Therapists', 'ባለሙያዎች')],
-    ['bookings', t('Bookings', 'ቀጠሮዎች')],
-    ['messages', t('Messages', 'መልዕክቶች')],
+    ['therapists', t('Therapists & Applicants', 'ባለሙያዎችና ማመልከቻዎች'), registeredCount],
+    ['bookings', t('Bookings', 'ቀጠሮዎች'), pendingAppts.length],
+    ['messages', t('Messages', 'መልዕክቶች'), allMessages.length],
     ['packages', t('Package sales', 'ጥቅሎች')],
     ['settings', t('Settings', 'ቅንብሮች')],
   ];
 
   const navIcons: Record<Tab, string> = {
-    overview: '📊', therapists: '👥', bookings: '📅',
-    messages: '💬', packages: '🛍️', settings: '⚙️',
+    overview: '📊',
+    therapists: '👥',
+    bookings: '📅',
+    messages: '💬',
+    packages: '🛍️',
+    settings: '⚙️',
   };
 
   // ── Bar chart helper ─────────────────────────────────────────
   const therapistBookingCounts = people.map(p => ({
+    id: p.id,
     name: p.name.split(' ')[0],
     count: state.appointments.filter(a => a.therapist === p.id && a.status !== 'cancelled').length,
   }));
   const maxCount = Math.max(1, ...therapistBookingCounts.map(x => x.count));
 
   const packageRevByTherapist = people.map(p => ({
+    id: p.id,
     name: p.name.split(' ')[0],
     amount: state.receipts.filter(r => r.therapist === p.id).reduce((n, r) => n + r.amount, 0),
   }));
   const maxRev = Math.max(1, ...packageRevByTherapist.map(x => x.amount));
+
+  // Filtered bookings
+  const filteredBookings = state.appointments
+    .filter(a => (bookingFilter === 'all' ? true : a.status === bookingFilter))
+    .filter(a => {
+      if (!bookingSearch.trim()) return true;
+      const term = bookingSearch.toLowerCase();
+      const clientMatch = a.client.toLowerCase().includes(term);
+      const therapistName = people.find(p => p.id === a.therapist)?.name.toLowerCase() || '';
+      return clientMatch || therapistName.includes(term);
+    })
+    .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
 
   return (
     <>
@@ -83,55 +83,105 @@ export default function AdminPortal() {
         {/* ── SIDEBAR ── */}
         <aside className="admin-sidebar">
           <div className="admin-sidebar-brand">
-            <span>{t('MANAGEMENT', 'አስተዳደር')}</span>
+            <span>{t('MANAGEMENT CONSOLE', 'አስተዳደር')}</span>
             <h2>{t('Admin Portal', 'አስተዳዳሪ')}</h2>
           </div>
           <ul className="admin-nav">
-            {tabs.map(([key, label]) => (
+            {tabs.map(([key, label, count]) => (
               <li key={key}>
                 <button className={tab === key ? 'active' : ''} onClick={() => setTab(key)}>
                   <span className="nav-icon">{navIcons[key]}</span>
-                  {label}
+                  <span style={{ flex: 1, textAlign: 'left' }}>{label}</span>
+                  {count !== undefined && count > 0 && (
+                    <span className="portal-tab-badge" style={{ marginLeft: 'auto' }}>
+                      {count}
+                    </span>
+                  )}
                 </button>
               </li>
             ))}
           </ul>
           <div className="admin-sidebar-footer">
-            <small>{t('Demo mode — no real data', 'ማሳያ ሁኔታ')}</small><br />
-            <button style={{ marginTop: '8px', fontSize: '10px' }} onClick={() => setAuth(false)}>{t('Sign out', 'ውጣ')}</button>
+            <small>{t('Interactive Demo Console', 'ማሳያ ሁኔታ')}</small>
+            <br />
+            <button style={{ marginTop: '8px', fontSize: '10px' }} disabled>
+              {t('Sign out', 'ውጣ')}
+            </button>
           </div>
         </aside>
 
         {/* ── MAIN CONTENT ── */}
         <main className="admin-content">
           {/* Mobile tab switcher */}
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '24px' }}>
-            {tabs.map(([key, label]) => (
-              <button key={key} aria-pressed={tab === key} onClick={() => setTab(key)} style={{ fontSize: '11px', padding: '7px 10px' }}>
-                {navIcons[key]} {label}
+          <div className="admin-mobile-tabs">
+            {tabs.map(([key, label, count]) => (
+              <button
+                key={key}
+                aria-pressed={tab === key}
+                onClick={() => setTab(key)}
+                style={{ fontSize: '11px', padding: '7px 10px' }}
+              >
+                {navIcons[key]} {label} {count !== undefined && count > 0 ? `(${count})` : ''}
               </button>
             ))}
           </div>
 
           {/* ══ OVERVIEW ══════════════════════════════════════════ */}
           {tab === 'overview' && (
-            <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
               <span className="eyebrow">{t('DASHBOARD OVERVIEW', 'ዳሽቦርድ')}</span>
-              <h1>{t('Care at a glance.', 'አጠቃላይ እይታ።')}</h1>
+              <h1>{t('Platform at a glance.', 'አጠቃላይ እይታ።')}</h1>
 
-              <div className="admin-metrics">
-                {([
-                  [t('Total bookings', 'ጠቅላላ ቀጠሮዎች'), totalBookings, ''],
-                  [t("Today's sessions", 'የዛሬ ቀጠሮዎች'), todayBookings, ''],
-                  [t('Package revenue (demo)', 'ጥቅል ሽያጭ (ማሳያ)'), money(totalRevenue), ''],
-                  [t('Pending approvals', 'በቀጠሮ ጠያቂዎች'), pendingAppts.length, pendingAppts.length > 0 ? '⚠ ' + t('needs attention', 'ትኩረት ያስፈልጋቸዋል') : '✓ ' + t('all clear', 'ሁሉም ጥሩ ነው')],
-                ] as [string, string | number, string][]).map(([label, value, trend]) => (
-                  <div key={label} className="admin-metric-card">
-                    <small>{label}</small>
-                    <strong>{value}</strong>
-                    {trend && <span className="trend">{trend}</span>}
-                  </div>
-                ))}
+              <div className="admin-metrics" style={{ marginTop: '20px' }}>
+                <div className="admin-metric-card">
+                  <small>{t('Total bookings', 'ጠቅላላ ቀጠሮዎች')}</small>
+                  <strong>{totalBookings}</strong>
+                  <span className="trend">Across {people.length} practitioners</span>
+                </div>
+                <div className="admin-metric-card">
+                  <small>{t("Today's sessions", 'የዛሬ ቀጠሮዎች')}</small>
+                  <strong>{todayBookings}</strong>
+                  <span className="trend">{todayBookings > 0 ? 'Active schedule' : 'Clear today'}</span>
+                </div>
+                <div className="admin-metric-card">
+                  <small>{t('Package revenue (demo)', 'ጥቅል ሽያጭ (ማሳያ)')}</small>
+                  <strong>{money(totalRevenue)}</strong>
+                  <span className="trend">{state.receipts.length} orders processed</span>
+                </div>
+                <div className="admin-metric-card">
+                  <small>{t('Pending approvals', 'በቀጠሮ ጠያቂዎች')}</small>
+                  <strong style={{ color: pendingAppts.length > 0 ? 'var(--danger)' : 'inherit' }}>
+                    {pendingAppts.length}
+                  </strong>
+                  <span className="trend">
+                    {pendingAppts.length > 0 ? '⚠ ' + t('needs attention', 'ትኩረት ያስፈልጋቸዋል') : '✓ ' + t('all clear', 'ሁሉም ጥሩ ነው')}
+                  </span>
+                </div>
+              </div>
+
+              {/* Quick actions */}
+              <div className="admin-section" style={{ margin: '28px 0' }}>
+                <div className="admin-section-header">
+                  <h2>{t('Quick Actions', 'ፈጣን ድርጊቶች')}</h2>
+                </div>
+                <div className="admin-quick-actions">
+                  <button onClick={() => setTab('therapists')}>
+                    <strong>👥</strong>
+                    {t('Manage Therapists & Applicants', 'ባለሙያዎች')}
+                  </button>
+                  <button onClick={() => setTab('bookings')}>
+                    <strong>📅</strong>
+                    {t('Review Pending Bookings', 'ቀጠሮዎች')}
+                  </button>
+                  <button onClick={() => setTab('messages')}>
+                    <strong>💬</strong>
+                    {t('Inspect Live Messages', 'መልዕክቶች')}
+                  </button>
+                  <Link href="/register" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '14px 18px', border: '2px solid var(--ink)', textDecoration: 'none', background: 'var(--ink)', color: 'var(--paper)' }}>
+                    <strong>➕</strong>
+                    <span>{t('Register New Therapist', 'አዲስ ባለሙያ ምዝገባ')}</span>
+                  </Link>
+                </div>
               </div>
 
               {/* Charts */}
@@ -139,106 +189,224 @@ export default function AdminPortal() {
                 <div className="admin-chart-box">
                   <h3>{t('Bookings by therapist', 'ቀጠሮዎች በባለሙያ')}</h3>
                   <div className="admin-bar-chart">
-                    {therapistBookingCounts.map(({ name, count }) => (
-                      <div key={name} className="admin-bar-wrap">
-                        <div className="admin-bar" style={{ height: `${(count / maxCount) * 100}%`, minHeight: count > 0 ? '8px' : '2px', background: count > 0 ? '#000' : '#ddd' }} />
-                        <div className="admin-bar-label">{name}<br />{count}</div>
+                    {therapistBookingCounts.map(({ id: therapistId, name, count }) => (
+                      <div key={therapistId} className="admin-bar-wrap">
+                        <div
+                          className="admin-bar"
+                          style={{
+                            height: `${(count / maxCount) * 100}%`,
+                            minHeight: count > 0 ? '8px' : '2px',
+                            background: count > 0 ? 'var(--ink)' : 'var(--rule-soft)',
+                          }}
+                        />
+                        <div className="admin-bar-label">
+                          {name}
+                          <br />
+                          {count}
+                        </div>
                       </div>
                     ))}
                   </div>
                 </div>
+
                 <div className="admin-chart-box">
                   <h3>{t('Package revenue by therapist (demo)', 'ጥቅሎች በባለሙያ (ማሳያ)')}</h3>
                   <div className="admin-bar-chart">
-                    {packageRevByTherapist.map(({ name, amount }) => (
-                      <div key={name} className="admin-bar-wrap">
-                        <div className="admin-bar" style={{ height: `${(amount / maxRev) * 100}%`, minHeight: amount > 0 ? '8px' : '2px', background: amount > 0 ? '#000' : '#ddd' }} />
-                        <div className="admin-bar-label">{name}<br />{amount > 0 ? money(amount) : '—'}</div>
+                    {packageRevByTherapist.map(({ id: therapistId, name, amount }) => (
+                      <div key={therapistId} className="admin-bar-wrap">
+                        <div
+                          className="admin-bar"
+                          style={{
+                            height: `${(amount / maxRev) * 100}%`,
+                            minHeight: amount > 0 ? '8px' : '2px',
+                            background: amount > 0 ? 'var(--ink)' : 'var(--rule-soft)',
+                          }}
+                        />
+                        <div className="admin-bar-label">
+                          {name}
+                          <br />
+                          {amount > 0 ? money(amount) : '—'}
+                        </div>
                       </div>
                     ))}
                   </div>
                 </div>
               </div>
-
-              {/* Quick actions */}
-              <div className="admin-section">
-                <div className="admin-section-header"><h2>{t('Quick actions', 'ፈጣን ድርጊቶች')}</h2></div>
-                <div className="admin-quick-actions">
-                  {([
-                    [t('View all therapists', 'ሁሉም ባለሙያዎች'), () => setTab('therapists'), '👥'],
-                    [t('Pending bookings', 'ቀጠሮ ጥያቄዎች'), () => setTab('bookings'), '📅'],
-                    [t('Read messages', 'መልዕክቶች አንብብ'), () => setTab('messages'), '💬'],
-                    [t('Package sales', 'ጥቅሎች'), () => setTab('packages'), '🛍️'],
-                  ] as [string, () => void, string][]).map(([label, action, icon]) => (
-                    <button key={label} onClick={action}>
-                      <strong>{icon}</strong>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </>
+            </motion.div>
           )}
 
-          {/* ══ THERAPISTS ════════════════════════════════════════ */}
+          {/* ══ THERAPISTS & APPLICANTS ════════════════════════════ */}
           {tab === 'therapists' && (
-            <>
-              <h1>{t('Therapists', 'ባለሙያዎች')}</h1>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <div>
+                  <h1>{t('Practitioners & Applications', 'ባለሙያዎችና ማመልከቻዎች')}</h1>
+                  <p className="muted" style={{ margin: '4px 0 0' }}>
+                    {t(
+                      'Manage practicing clinicians and review new therapist registrations submitted from the join form.',
+                      'የባለሙያዎችን ዝርዝርና አዳዲስ ማመልከቻዎችን ይቆጣጠሩ።'
+                    )}
+                  </p>
+                </div>
+                <Link href="/register" className="solid compact" style={{ textDecoration: 'none' }}>
+                  + {t('Add Practitioner Application', 'አዲስ ባለሙያ ጨምር')}
+                </Link>
+              </div>
+
+              {/* Search filter */}
+              <div style={{ margin: '20px 0 10px', maxWidth: '420px' }}>
+                <input
+                  type="search"
+                  placeholder={t('Search practitioner by name or title…', 'በስም ወይም በማዕረግ ፈልግ…')}
+                  value={therapistSearch}
+                  onChange={e => setTherapistSearch(e.target.value)}
+                />
+              </div>
+
               <div className="admin-section">
                 <table className="admin-table">
                   <thead>
                     <tr>
-                      <th>{t('Therapist', 'ባለሙያ')}</th>
-                      <th>{t('Title', 'ማዕረግ')}</th>
+                      <th>{t('Practitioner', 'ባለሙያ')}</th>
+                      <th>{t('Type / Source', 'ምንጭ')}</th>
                       <th>{t('Status', 'ሁኔታ')}</th>
-                      <th>{t('Online price', 'ዋጋ ኦንላይን')}</th>
-                      <th>{t('In-person', 'በአካል')}</th>
+                      <th>{t('Online / In-Person', 'ዋጋ')}</th>
                       <th>{t('Bookings', 'ቀጠሮዎች')}</th>
                       <th>{t('Actions', 'ድርጊቶች')}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {people.map(p => {
-                      const ps = settings(p.id);
-                      const bCount = state.appointments.filter(a => a.therapist === p.id && a.status !== 'cancelled').length;
-                      return (
-                        <tr key={p.id}>
-                          <td>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                              <div className="admin-therapist-avatar">{p.name.replace(/^Dr\.\s*/, '').split(' ').map(n => n[0]).join('').slice(0, 2)}</div>
-                              <span>{p.name}</span>
-                            </div>
-                          </td>
-                          <td>{p.title}</td>
-                          <td>
-                            <span className={`admin-badge ${ps.presence === 'available' ? 'green' : ps.presence === 'busy' ? 'amber' : 'grey'}`}>
-                              {ps.presence}
-                            </span>
-                          </td>
-                          <td>{money(ps.online)}</td>
-                          <td>{money(ps.inperson)}</td>
-                          <td>{bCount}</td>
-                          <td>
-                            <Link href={`/portal?therapist=${p.id}`} style={{ fontSize: '11px' }}>{t('Portal →', 'ፖርታል →')}</Link>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {people
+                      .filter(p =>
+                        p.name.toLowerCase().includes(therapistSearch.toLowerCase()) ||
+                        p.title.toLowerCase().includes(therapistSearch.toLowerCase())
+                      )
+                      .map(p => {
+                        const ps = settings(p.id);
+                        const bCount = state.appointments.filter(
+                          a => a.therapist === p.id && a.status !== 'cancelled'
+                        ).length;
+                        const isCustom = state.registeredTherapists?.some(r => r.id === p.id);
+
+                        return (
+                          <tr key={p.id}>
+                            <td data-label={t('Practitioner', 'ባለሙያ')}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <Photo id={p.id} name={p.name} src={ps.photo} />
+                                <div>
+                                  <strong>{p.name}</strong>
+                                  <small style={{ display: 'block', color: 'var(--muted-text)' }}>{p.title}</small>
+                                </div>
+                              </div>
+                            </td>
+                            <td data-label={t('Type / Source', 'ምንጭ')}>
+                              {isCustom ? (
+                                <span className="admin-badge amber">
+                                  {t('Registered Applicant', 'የተመዘገበ አዲስ')}
+                                </span>
+                              ) : (
+                                <span className="admin-badge grey">
+                                  {t('Verified Staff', 'መደበኛ')}
+                                </span>
+                              )}
+                            </td>
+                            <td data-label={t('Status', 'ሁኔታ')}>
+                              <span
+                                className={`admin-badge ${
+                                  ps.presence === 'available' ? 'green' : ps.presence === 'busy' ? 'amber' : 'grey'
+                                }`}
+                              >
+                                {ps.presence}
+                              </span>
+                            </td>
+                            <td data-label={t('Online / In-Person', 'ዋጋ')}>
+                              {money(ps.online)} / {money(ps.inperson)}
+                            </td>
+                            <td data-label={t('Bookings', 'ቀጠሮዎች')}>
+                              <strong>{bCount}</strong>
+                            </td>
+                            <td data-label={t('Actions', 'ድርጊቶች')}>
+                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                <Link
+                                  href={`/portal?therapist=${p.id}`}
+                                  style={{ fontSize: '11px', fontWeight: 700 }}
+                                >
+                                  {t('Open Portal →', 'ፖርታል →')}
+                                </Link>
+                                <Link
+                                  href={`/chat?therapist=${p.id}`}
+                                  style={{ fontSize: '11px' }}
+                                >
+                                  {t('Chat →', 'ቻት →')}
+                                </Link>
+                                {isCustom && (
+                                  <button
+                                    onClick={() => {
+                                      if (confirm(t('Remove this registered practitioner?', 'ይህ ባለሙያ ይሰረዝ?'))) {
+                                        deleteTherapist(p.id);
+                                      }
+                                    }}
+                                    style={{ fontSize: '10px', padding: '3px 6px', color: 'var(--danger)', borderColor: 'var(--danger)' }}
+                                  >
+                                    ✕ {t('Remove', 'ሰርዝ')}
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>
-              <p className="notice">{t('To edit a therapist\'s rates, availability, or photo — use the Therapist Portal.', 'ዋጋ፣ ቀናት ወይም ፎቶ ለማስተካከል — የባለሙያ ፖርታሉን ይጠቀሙ።')} <Link href="/portal">{t('Go to portal →', 'ወደ ፖርታል →')}</Link></p>
-            </>
+            </motion.div>
           )}
 
-          {/* ══ BOOKINGS ══════════════════════════════════════════ */}
+          {/* ══ BOOKINGS MANAGEMENT ════════════════════════════════ */}
           {tab === 'bookings' && (
-            <>
-              <h1>{t('All bookings', 'ሁሉም ቀጠሮዎች')}</h1>
-              {!state.appointments.length ? (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <div>
+                  <h1>{t('Bookings & Scheduling Desk', 'የቀጠሮዎች አስተዳደር')}</h1>
+                  <p className="muted" style={{ margin: '4px 0 0' }}>
+                    {t('Confirm, complete, or reschedule client appointments.', 'የደንበኞችን ቀጠሮዎች ያረጋግጡ ወይም ያስተካክሉ።')}
+                  </p>
+                </div>
+              </div>
+
+              {/* Filters & Search Bar */}
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', margin: '20px 0' }}>
+                <div className="segmented">
+                  {(['all', 'pending', 'confirmed', 'completed', 'cancelled'] as const).map(st => (
+                    <button
+                      key={st}
+                      type="button"
+                      aria-pressed={bookingFilter === st}
+                      onClick={() => setBookingFilter(st)}
+                      style={{ fontSize: '11px', textTransform: 'capitalize' }}
+                    >
+                      {st === 'all' ? t('All Bookings', 'ሁሉም') : statusLabel(st as 'pending' | 'confirmed' | 'cancelled' | 'completed', t) || st}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ flex: 1, minWidth: '220px' }}>
+                  <input
+                    type="search"
+                    placeholder={t('Search by client or therapist name…', 'በደንበኛ ወይም በባለሙያ ስም ፈልግ…')}
+                    value={bookingSearch}
+                    onChange={e => setBookingSearch(e.target.value)}
+                    style={{ margin: 0, padding: '8px 12px', fontSize: '12px' }}
+                  />
+                </div>
+              </div>
+
+              {!filteredBookings.length ? (
                 <div className="empty-state">
-                  <p>{t('No bookings yet. Create one from the client directory.', 'ቀጠሮ የለም። ከደንበኞቹ ዝርዝር ይፍጠሩ።')}</p>
-                  <Link className="solid" href="/therapists">{t('Go to directory', 'ወደ ዝርዝር')}</Link>
+                  <p>{t('No bookings matching this filter.', 'ምንም ቀጠሮ አልተገኘም።')}</p>
+                  <button onClick={() => { setBookingFilter('all'); setBookingSearch(''); }}>
+                    {t('Clear Filters', 'ማጣሪያ አጥፋ')}
+                  </button>
                 </div>
               ) : (
                 <table className="admin-table">
@@ -246,27 +414,66 @@ export default function AdminPortal() {
                     <tr>
                       <th>{t('Client', 'ደንበኛ')}</th>
                       <th>{t('Therapist', 'ባለሙያ')}</th>
-                      <th>{t('Date & time', 'ቀን')}</th>
-                      <th>{t('Type', 'ዓይነት')}</th>
+                      <th>{t('Date & Time', 'ቀንና ሰዓት')}</th>
+                      <th>{t('Medium', 'ዓይነት')}</th>
                       <th>{t('Price', 'ዋጋ')}</th>
                       <th>{t('Status', 'ሁኔታ')}</th>
-                      <th>{t('Action', 'ድርጊት')}</th>
+                      <th>{t('Actions', 'ድርጊት')}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {state.appointments.slice().sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)).map(a => (
+                    {filteredBookings.map(a => (
                       <tr key={a.id}>
-                        <td>{a.client === 'demo-client' ? t('Demo client', 'ደንበኛ') : a.client}</td>
-                        <td>{people.find(p => p.id === a.therapist)?.name}</td>
-                        <td>{date(`${a.date}T12:00`)} · {a.time}</td>
-                        <td>{a.medium === 'online' ? '💻' : '🏥'} {a.medium === 'online' ? t('Online', 'ኦንላይን') : t('In-person', 'በአካል')}</td>
-                        <td>{money(a.price)}</td>
-                        <td><span className={`admin-badge ${a.status === 'confirmed' ? 'green' : a.status === 'pending' ? 'amber' : a.status === 'cancelled' ? 'grey' : 'green'}`}>{statusLabel(a.status, t)}</span></td>
-                        <td>
+                        <td data-label={t('Client', 'ደንበኛ')}>
+                          <strong>{a.client === 'demo-client' ? t('Demo Client', 'ደንበኛ') : a.client}</strong>
+                        </td>
+                        <td data-label={t('Therapist', 'ባለሙያ')}>{people.find(p => p.id === a.therapist)?.name}</td>
+                        <td data-label={t('Date & Time', 'ቀንና ሰዓት')}>
+                          {date(`${a.date}T12:00`)} · {a.time}
+                        </td>
+                        <td data-label={t('Medium', 'ዓይነት')}>{a.medium === 'online' ? '💻 Online' : '🏥 In-person'}</td>
+                        <td data-label={t('Price', 'ዋጋ')}>{money(a.price)}</td>
+                        <td data-label={t('Status', 'ሁኔታ')}>
+                          <span
+                            className={`admin-badge ${
+                              a.status === 'confirmed'
+                                ? 'green'
+                                : a.status === 'pending'
+                                ? 'amber'
+                                : a.status === 'cancelled'
+                                ? 'grey'
+                                : 'green'
+                            }`}
+                          >
+                            {statusLabel(a.status, t)}
+                          </span>
+                        </td>
+                        <td data-label={t('Actions', 'ድርጊት')}>
                           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                            {a.status === 'pending' && <button style={{ fontSize: '10px', padding: '4px 8px' }} onClick={() => updateAppointment(a.id, { status: 'confirmed' })}>{t('Confirm', 'አረጋግጥ')}</button>}
-                            {(a.status === 'pending' || a.status === 'confirmed') && <button style={{ fontSize: '10px', padding: '4px 8px' }} onClick={() => updateAppointment(a.id, { status: 'cancelled' })}>{t('Cancel', 'ሰርዝ')}</button>}
-                            {a.status === 'confirmed' && <button style={{ fontSize: '10px', padding: '4px 8px' }} onClick={() => updateAppointment(a.id, { status: 'completed' })}>{t('Mark done', 'ጨርስ')}</button>}
+                            {a.status === 'pending' && (
+                              <button
+                                style={{ fontSize: '10px', padding: '4px 8px' }}
+                                onClick={() => updateAppointment(a.id, { status: 'confirmed' })}
+                              >
+                                ✓ {t('Confirm', 'አረጋግጥ')}
+                              </button>
+                            )}
+                            {a.status === 'confirmed' && (
+                              <button
+                                style={{ fontSize: '10px', padding: '4px 8px' }}
+                                onClick={() => updateAppointment(a.id, { status: 'completed' })}
+                              >
+                                {t('Mark Done', 'ጨርስ')}
+                              </button>
+                            )}
+                            {a.status !== 'cancelled' && a.status !== 'completed' && (
+                              <button
+                                style={{ fontSize: '10px', padding: '4px 8px', color: 'var(--danger)', borderColor: 'var(--danger)' }}
+                                onClick={() => updateAppointment(a.id, { status: 'cancelled' })}
+                              >
+                                {t('Cancel', 'ሰርዝ')}
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -274,47 +481,70 @@ export default function AdminPortal() {
                   </tbody>
                 </table>
               )}
-            </>
+            </motion.div>
           )}
 
           {/* ══ MESSAGES ══════════════════════════════════════════ */}
           {tab === 'messages' && (
-            <>
-              <h1>{t('All messages', 'ሁሉም መልዕክቶች')}</h1>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h1>{t('All Messages & Transcripts', 'ሁሉም መልዕክቶች')}</h1>
+                  <p className="muted" style={{ margin: '4px 0 0' }}>
+                    {t('Live confidential communication stream between clients and practitioners.', 'የቀጥታ ውይይቶች መዝገብ።')}
+                  </p>
+                </div>
+                <Link href="/chat" className="solid compact" style={{ textDecoration: 'none' }}>
+                  💬 {t('Open Messenger View', 'የቻት ገጽ ክፈት')}
+                </Link>
+              </div>
+
               {!allMessages.length ? (
-                <div className="empty-state"><p>{t('No messages yet.', 'መልዕክቶች የሉም።')}</p></div>
+                <div className="empty-state">
+                  <p>{t('No messages yet.', 'መልዕክቶች የሉም።')}</p>
+                </div>
               ) : (
                 <table className="admin-table">
                   <thead>
                     <tr>
-                      <th>{t('From', 'ከ')}</th>
+                      <th>{t('Sender', 'ላኪ')}</th>
                       <th>{t('Therapist', 'ባለሙያ')}</th>
-                      <th>{t('Type', 'ዓይነት')}</th>
-                      <th>{t('Preview', 'ቅኝት')}</th>
-                      <th>{t('Time', 'ሰዓት')}</th>
+                      <th>{t('Content', 'ይዘት')}</th>
+                      <th>{t('Timestamp', 'ሰዓት')}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {allMessages.map(m => (
                       <tr key={m.id}>
-                        <td><span className={`admin-badge ${m.from === 'client' ? 'amber' : 'green'}`}>{m.from === 'client' ? t('Client', 'ደንበኛ') : t('Therapist', 'ባለሙያ')}</span></td>
-                        <td>{people.find(p => p.id === m.therapist)?.name}</td>
-                        <td>{m.audio ? '🎙 ' + t('Voice', 'ድምፅ') : '💬 ' + t('Text', 'ጽሑፍ')}</td>
-                        <td style={{ maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.text ? m.text.slice(0, 80) : t('Audio recording', 'ድምፅ ቅጂ')}</td>
-                        <td>{new Date(m.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</td>
+                        <td data-label={t('Sender', 'ላኪ')}>
+                          <span className={`admin-badge ${m.from === 'client' ? 'amber' : 'green'}`}>
+                            {m.from === 'client' ? t('Client', 'ደንበኛ') : t('Therapist', 'ባለሙያ')}
+                          </span>
+                        </td>
+                        <td data-label={t('Therapist', 'ባለሙያ')}>{people.find(p => p.id === m.therapist)?.name}</td>
+                        <td data-label={t('Content', 'ይዘት')} style={{ maxWidth: '340px' }}>
+                          {m.text ? (
+                            <p style={{ margin: 0, fontSize: '13px' }}>{m.text}</p>
+                          ) : (
+                            <span>🎙️ {t('Audio recording', 'ድምፅ ቅጂ')}</span>
+                          )}
+                        </td>
+                        <td data-label={t('Timestamp', 'ሰዓት')} style={{ whiteSpace: 'nowrap', fontSize: '11px', fontFamily: 'Space Mono, monospace' }}>
+                          {new Date(m.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               )}
-            </>
+            </motion.div>
           )}
 
           {/* ══ PACKAGES ══════════════════════════════════════════ */}
           {tab === 'packages' && (
-            <>
-              <h1>{t('Package sales', 'ጥቅሎች')}</h1>
-              <div className="admin-metrics" style={{ gridTemplateColumns: 'repeat(3,minmax(0,1fr))' }}>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <h1>{t('Voice & Text Package Orders', 'የጥቅሎች ሽያጭ')}</h1>
+              <div className="admin-metrics" style={{ gridTemplateColumns: 'repeat(3,minmax(0,1fr))', margin: '20px 0' }}>
                 <div className="admin-metric-card">
                   <small>{t('Total package revenue (demo)', 'ጠቅላላ ጥቅሎች (ማሳያ)')}</small>
                   <strong>{money(totalRevenue)}</strong>
@@ -325,11 +555,16 @@ export default function AdminPortal() {
                 </div>
                 <div className="admin-metric-card">
                   <small>{t('Avg per purchase', 'አማካኝ')}</small>
-                  <strong>{state.receipts.length ? money(Math.round(totalRevenue / state.receipts.length)) : '—'}</strong>
+                  <strong>
+                    {state.receipts.length ? money(Math.round(totalRevenue / state.receipts.length)) : '—'}
+                  </strong>
                 </div>
               </div>
+
               {!state.receipts.length ? (
-                <div className="empty-state"><p>{t('No package purchases yet.', 'ጥቅሎች አልተገዙም።')}</p></div>
+                <div className="empty-state">
+                  <p>{t('No package purchases yet.', 'ጥቅሎች አልተገዙም።')}</p>
+                </div>
               ) : (
                 <table className="admin-table">
                   <thead>
@@ -337,64 +572,59 @@ export default function AdminPortal() {
                       <th>{t('Date', 'ቀን')}</th>
                       <th>{t('Therapist', 'ባለሙያ')}</th>
                       <th>{t('Package', 'ጥቅል')}</th>
-                      <th>{t('Amount (demo)', 'ዋጋ (ማሳያ)')}</th>
+                      <th>{t('Amount', 'ዋጋ')}</th>
                       <th>{t('Receipt ID', 'ደረሰኝ')}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {state.receipts.map(r => (
                       <tr key={r.id}>
-                        <td>{date(r.at)}</td>
-                        <td>{people.find(p => p.id === r.therapist)?.name}</td>
-                        <td style={{ textTransform: 'capitalize' }}>{r.bundle}</td>
-                        <td>{money(r.amount)}</td>
-                        <td style={{ fontSize: '11px', fontFamily: 'Space Mono,monospace', color: '#555' }}>{r.id.slice(0, 12)}…</td>
+                        <td data-label={t('Date', 'ቀን')}>{date(r.at)}</td>
+                        <td data-label={t('Therapist', 'ባለሙያ')}>{people.find(p => p.id === r.therapist)?.name}</td>
+                        <td data-label={t('Package', 'ጥቅል')} style={{ textTransform: 'capitalize', fontWeight: 600 }}>{r.bundle}</td>
+                        <td data-label={t('Amount', 'ዋጋ')}>{money(r.amount)}</td>
+                        <td data-label={t('Receipt ID', 'ደረሰኝ')} style={{ fontSize: '11px', fontFamily: 'Space Mono,monospace', color: 'var(--muted-text)' }}>
+                          {r.id.slice(0, 12)}…
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               )}
-            </>
+            </motion.div>
           )}
 
           {/* ══ SETTINGS ══════════════════════════════════════════ */}
           {tab === 'settings' && (
-            <>
-              <h1>{t('Platform settings', 'ቅንብሮች')}</h1>
-              <div className="notice">{t('These are admin-level platform settings. In a production system this would control global discounts, feature flags, notification settings, and therapist approval workflows. For this demo, use the Therapist Portal to manage individual therapist settings.', 'ይህ የሙከራ ቅንብሮች ክፍል ነው። ለእያንዳንዱ ባለሙያ ቅንብሮች — የባለሙያ ፖርታሉን ይጠቀሙ።')}</div>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <h1>{t('Platform Governance & Settings', 'ቅንብሮች')}</h1>
+              <div className="notice" style={{ margin: '16px 0 24px' }}>
+                {t(
+                  'These are platform-level administrative controls. Configure global flags, simulated billing accounts, and practitioner onboarding approvals.',
+                  'ይህ የአስተዳደር ቅንብሮች ክፍል ነው።'
+                )}
+              </div>
 
               <div className="admin-section">
-                <div className="admin-section-header"><h2>{t('Quick links', 'ፈጣን አገናኞች')}</h2></div>
+                <div className="admin-section-header">
+                  <h2>{t('Quick Portals & Navigation', 'ፈጣን አገናኞች')}</h2>
+                </div>
                 <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                  <Link className="solid" href="/portal">{t('Therapist portal', 'ፖርታል')}</Link>
-                  <Link href="/therapists">{t('Client directory', 'ዝርዝር')}</Link>
-                  <Link href="/appointments">{t('My bookings', 'ቀጠሮዎቼ')}</Link>
-                  <Link href="/register">{t('Register therapist', 'ባለሙያ ምዝገባ')}</Link>
+                  <Link className="solid" href="/portal">
+                    {t('Therapist Portal', 'የባለሙያ ፖርታል')}
+                  </Link>
+                  <Link href="/register" style={{ padding: '10px 16px', border: '2px solid var(--ink)', textDecoration: 'none', fontWeight: 700 }}>
+                    {t('Register New Practitioner', 'ባለሙያ ምዝገባ')}
+                  </Link>
+                  <Link href="/therapists" style={{ padding: '10px 16px', border: '2px solid var(--ink)', textDecoration: 'none' }}>
+                    {t('Client Directory', 'የደንበኛ ዝርዝር')}
+                  </Link>
+                  <Link href="/chat" style={{ padding: '10px 16px', border: '2px solid var(--ink)', textDecoration: 'none' }}>
+                    {t('Live Messenger', 'የቀጥታ ቻት')}
+                  </Link>
                 </div>
               </div>
-
-              <div className="admin-section" style={{ marginTop: '40px' }}>
-                <div className="admin-section-header"><h2>{t('Therapist quick-status', 'ሁኔታ')}</h2></div>
-                <table className="admin-table">
-                  <thead>
-                    <tr><th>{t('Therapist', 'ባለሙያ')}</th><th>{t('Presence', 'ሁኔታ')}</th><th>{t('Chat hours', 'ቻት')}</th><th>{t('Session days', 'ቀናት')}</th></tr>
-                  </thead>
-                  <tbody>
-                    {people.map(p => {
-                      const ps = settings(p.id);
-                      return (
-                        <tr key={p.id}>
-                          <td>{p.name}</td>
-                          <td><span className={`admin-badge ${ps.presence === 'available' ? 'green' : ps.presence === 'busy' ? 'amber' : 'grey'}`}>{ps.presence}</span></td>
-                          <td style={{ fontFamily: 'Space Mono,monospace', fontSize: '11px' }}>{ps.chatStart}–{ps.chatEnd}</td>
-                          <td style={{ fontFamily: 'Space Mono,monospace', fontSize: '11px' }}>{ps.days.map(d => ['Su','Mo','Tu','We','Th','Fr','Sa'][d]).join(', ')}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </>
+            </motion.div>
           )}
         </main>
       </div>

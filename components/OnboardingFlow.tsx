@@ -217,7 +217,7 @@ export default function OnboardingFlow() {
       {/* ── FAST BOOKING & PACKAGES ACTION STRIP ── */}
       <section className="quick-action-strip">
         <div>
-          <span className="eyebrow" style={{ color: '#aaa' }}>{t('ACCESSIBLE CARE / Addis Ababa', 'ቀጥታ እንክብካቤ / አዲስ አበባ')}</span>
+          <span className="eyebrow" style={{ color: 'var(--muted-text)' }}>{t('ACCESSIBLE CARE / Addis Ababa', 'ቀጥታ እንክብካቤ / አዲስ አበባ')}</span>
           <h3>{t('Ready to begin? Choose your rhythm.', 'ለመጀመር ዝግጁ ነዎት? የሚመችዎትን ይምረጡ።')}</h3>
           <p>{t('Book an online video session, meet in person at an Addis clinic, or exchange confidential text & voice notes.', 'የቪዲዮ ቀጠሮ ይያዙ፣ በአካል በአዲስ አበባ ክሊኒክ ይገናኙ፣ ወይም በድምፅና በጽሑፍ መልዕክት ይወያዩ።')}</p>
         </div>

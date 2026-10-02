@@ -24,7 +24,7 @@ function AvailabilityBlock({ id }: { id: number }) {
       <h4>{t('Chat & voice hours', 'የቻትና ድምፅ ሰዓቶች')}</h4>
       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', margin: '8px 0' }}>
         {s.chatDays.map(d => (
-          <span key={d} style={{ padding: '3px 8px', border: '1px solid #000', font: '10px Space Mono,monospace', background: '#000', color: '#fff' }}>
+          <span key={d} style={{ padding: '3px 8px', border: '1px solid var(--ink)', font: '10px Space Mono,monospace', background: 'var(--ink)', color: 'var(--paper)' }}>
             {t(DAY_NAMES[d], AM_DAY_NAMES[d])}
           </span>
         ))}
@@ -90,7 +90,7 @@ export default function Directory() {
       time: qbTime,
       medium: qbMedium,
       price,
-      client: 'demo-client',
+      client: '',
     });
     if (success) {
       setQbSuccess(true);
@@ -121,7 +121,7 @@ export default function Directory() {
       {/* ── CHAT PROMO CALLOUT ── */}
       <section className="chat-promo">
         <div>
-          <span className="eyebrow" style={{ color: '#aaa' }}>{t('ASYNC CARE / TEXT & VOICE', 'ቀላል ቻት / ጽሑፍና ድምፅ')}</span>
+          <span className="eyebrow" style={{ color: 'var(--muted-text)' }}>{t('ASYNC CARE / TEXT & VOICE', 'ቀላል ቻት / ጽሑፍና ድምፅ')}</span>
           <h2>{t('Message on your own time.', 'በሚመችዎት ሰዓት ይወያዩ።')}</h2>
           <p>{t('Not ready for video or in-person? Purchase prepaid credits to send text and voice notes directly to any therapist.', 'ለቪዲዮ ወይም በአካል ዝግጁ አይደሉም? የቅድመ ክፍያ ጥቅል በመግዛት በጽሑፍና በድምፅ መልዕክት መገናኘት ይችላሉ።')}</p>
         </div>
@@ -149,25 +149,9 @@ export default function Directory() {
         </div>
       </div>
 
-      {/* ── MOBILE STICKY FILTER BAR (Visible only on mobile screen widths) ── */}
-      <div className="directory-sticky-bar">
-        <div className="segmented">
-          {([['all', t('All', 'ሁሉም')], ['available', t('Available', 'ዝግጁ')], ['saved', t('Saved', 'ተቀምጧል')]] as [string, string][]).map(([id, label]) => (
-            <button key={id} aria-pressed={filter === id} onClick={() => setFilter(id)}>{label}</button>
-          ))}
-        </div>
-        <input
-          type="search"
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          placeholder={t('Search…', 'ፈልግ…')}
-          style={{ flex: 1, margin: 0, fontSize: '11px', height: '34px', padding: '4px 8px' }}
-        />
-      </div>
-
       <div id="therapist-list" className="result-count">
         <span><strong>{results.length}</strong> {t('therapists available in Addis Ababa', 'ባለሙያዎች ይገኛሉ')}</span>
-        <span style={{ fontSize: '11px', color: '#555' }}>{t('Both in-person and online sessions supported', 'የአካልና የቪዲዮ ቀጠሮዎች ይገኛሉ')}</span>
+        <span style={{ fontSize: '11px', color: 'var(--muted-text)' }}>{t('Both in-person and online sessions supported', 'የአካልና የቪዲዮ ቀጠሮዎች ይገኛሉ')}</span>
       </div>
 
       {/* ── THERAPISTS GRID ── */}
@@ -179,26 +163,33 @@ export default function Directory() {
 
           return (
             <article className="person-card" key={p.id}>
-              <div className="person-top">
-                <Photo id={p.id} name={p.name} />
-                <button
-                  style={{ fontSize: '10px', padding: '5px 8px' }}
-                  aria-pressed={state.saved.includes(p.id)}
-                  onClick={() => save(p.id)}
-                >
-                  {state.saved.includes(p.id) ? t('★ Saved', '★ ተቀምጧል') : t('☆ Save', '☆ አስቀምጥ')}
-                </button>
+              {/* Perfectly aligned header group: Photo, Name, and Status */}
+              <div className="person-header-flex">
+                <div className="person-avatar-col">
+                  <Photo id={p.id} name={p.name} />
+                </div>
+                <div className="person-info-col">
+                  <div className="person-status-row">
+                    <Presence id={p.id} />
+                    <button
+                      className="person-save-btn"
+                      aria-pressed={state.saved.includes(p.id)}
+                      onClick={() => save(p.id)}
+                      title={state.saved.includes(p.id) ? t('Remove from saved', 'አስወግድ') : t('Save therapist', 'አስቀምጥ')}
+                    >
+                      {state.saved.includes(p.id) ? '★' : '☆'}
+                    </button>
+                  </div>
+                  <h3>{p.name}</h3>
+                  <p className="person-title-text">{p.title}</p>
+                </div>
               </div>
-
-              <Presence id={p.id} />
-              <h3>{p.name}</h3>
-              <p>{p.title}</p>
 
               <div className="tags">
                 {p.specialties.map(tag => <span key={tag}>{tag}</span>)}
               </div>
 
-              <p className="muted" style={{ fontSize: '12px' }}>
+              <p className="muted" style={{ fontSize: '12px', margin: '8px 0 14px' }}>
                 {p.languages.join(' · ')}<br />
                 {p.yearsExperience} {t('yrs experience', 'ዓ. ልምድ')} · ⭐ {p.rating} ({p.reviewCount} {t('reviews', 'ግምገማዎች')})
               </p>
@@ -220,7 +211,7 @@ export default function Directory() {
                 <button className="solid" onClick={() => openQuickBook(p.id)}>
                   ⚡ {t('Quick Book', 'ፈጣን ቀጠሮ')}
                 </button>
-                <Link className="solid" href={`/chat?therapist=${p.id}`} style={{ background: '#fff', color: '#000', border: '2px solid #000' }}>
+                <Link className="solid secondary" href={`/chat?therapist=${p.id}`} style={{ background: 'var(--paper)', color: 'var(--ink)', border: '2px solid var(--ink)' }}>
                   💬 {t('Chat', 'ቻት')}
                 </Link>
               </div>
@@ -234,7 +225,7 @@ export default function Directory() {
       </div>
 
       {!results.length && (
-        <div className="empty-state" style={{ padding: '40px', border: '3px solid #000', margin: '32px 0', textAlign: 'center' }}>
+        <div className="empty-state" style={{ padding: '40px', border: '3px solid var(--ink)', margin: '32px 0', textAlign: 'center' }}>
           <h2>{t('No matching therapists found.', 'ተዛማጅ ባለሙያ አልተገኘም።')}</h2>
           <button onClick={() => { setQuery(''); setFilter('all'); }}>{t('Clear search & filters', 'ማጣሪያውን አጥፋ')}</button>
         </div>
@@ -285,10 +276,10 @@ export default function Directory() {
             <button className="solid" onClick={() => { setProfileId(null); openQuickBook(person.id); }}>
               ⚡ {t('Quick Book Appointment', 'ፈጣን ቀጠሮ')}
             </button>
-            <Link className="solid" href={`/schedule/${person.id}`} style={{ background: '#fff', color: '#000', border: '3px solid #000' }}>
+            <Link className="solid secondary" href={`/schedule/${person.id}`} style={{ background: 'var(--paper)', color: 'var(--ink)', border: '3px solid var(--ink)' }}>
               📅 {t('Full Calendar Schedule', 'የቀን መቁጠሪያ')}
             </Link>
-            <Link className="solid" href={`/packages?therapist=${person.id}`} style={{ background: '#fff', color: '#000', border: '3px solid #000' }}>
+            <Link className="solid secondary" href={`/packages?therapist=${person.id}`} style={{ background: 'var(--paper)', color: 'var(--ink)', border: '3px solid var(--ink)' }}>
               💬 {t('Buy Message Package', 'የቻት ጥቅል')}
             </Link>
           </div>
@@ -315,7 +306,7 @@ export default function Directory() {
             </div>
           ) : (
             <div className="quick-book-modal-form">
-              <p style={{ margin: 0, fontSize: '14px', color: '#444' }}>
+              <p style={{ margin: 0, fontSize: '14px', color: 'var(--muted-text)' }}>
                 {t('Book in seconds without navigating through multiple pages.', 'በርካታ ገጾችን ሳያልፉ በሰከንዶች ውስጥ ቀጠሮ ይያዙ።')}
               </p>
 

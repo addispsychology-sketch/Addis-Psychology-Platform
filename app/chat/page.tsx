@@ -1,453 +1,741 @@
 'use client';
+
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import Image from 'next/image';
 import { usePlatform } from '@/components/Platform';
-import { Header, Presence, Photo, Modal } from '@/components/Shell';
-import { bundles, discountedPrice } from '@/lib/commerce';
+import PrivateAudio from '@/components/PrivateAudio';
+import { createVoiceRecorder } from '@/lib/voice';
+import { requestCall } from '@/components/AudioCalls';
+import { Mic, Send } from 'lucide-react';
+import { Photo, Modal } from '@/components/Shell';
+import { bundles, discountedPrice, formatVoiceTime } from '@/lib/commerce';
+import { motion, AnimatePresence } from 'framer-motion';
 
-const DAY_NAMES_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const AM_DAY_NAMES = ['እሑድ', 'ሰኞ', 'ማክሰኞ', 'ረቡዕ', 'ሐሙስ', 'ዓርብ', 'ቅዳሜ'];
 
-function ChatMessenger() {
-  const { t, people, balance, messages, send, lang, settings, money, buy } = usePlatform();
+
+const CONVERSATION_STARTERS = [
+  '🌊 I am feeling overwhelmed with stress lately and would love grounding advice.',
+  '🌿 How should I best prepare my thoughts for our upcoming session?',
+  '🕊️ I am navigating a difficult personal transition and finding it hard to focus.',
+  '✨ Can we practice a quick mindful breathing exercise together?',
+];
+
+function TrueFullscreenChat() {
+  const { t, people, balance, messages, send, loadMoreMessages, userId, ownTherapistId, ensureConversation, lang, settings, money, buy, theme, setTheme } = usePlatform();
   const params = useSearchParams();
-  const initialId = Number(params.get('therapist') || 1);
-  const [selectedId, setSelectedId] = useState(people.some(p => p.id === initialId) ? initialId : 1);
+  const initialId = Number(params.get('therapist') || (people[0] ? people[0].id : 1));
+
+  const [selectedId, setSelectedId] = useState(
+    people.some(p => p.id === initialId) ? initialId : (people[0] ? people[0].id : 1)
+  );
   const [showMobileList, setShowMobileList] = useState(!params.get('therapist'));
   const [searchQuery, setSearchQuery] = useState('');
   const [inputText, setInputText] = useState('');
-  const [recording, setRecording] = useState(false);
+  const [isHoldingVoice, setIsHoldingVoice] = useState(false);
+  const [isSlidToCancel, setIsSlidToCancel] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
-  const [draftAudio, setDraftAudio] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
-  const [permissionPending, setPermissionPending] = useState(false);
+  const [purchaseNotice, setPurchaseNotice] = useState('');
   const [quickPackageModal, setQuickPackageModal] = useState(false);
+  const isTherapistTyping = false;
+  const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
 
-  const sendingAudio = useRef(false);
-  const recorder = useRef<MediaRecorder | null>(null);
-  const stream = useRef<MediaStream | null>(null);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const holdStartTime = useRef<number>(0);
+  const stoppedDuration = useRef(0);
+  const touchStartPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const isCanceledRef = useRef(false);
+  const pointerHeld = useRef(false);
   const alive = useRef(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const recordedChunks = useRef<BlobPart[]>([]);
 
-  const activePerson = people.find(p => p.id === selectedId) || people[0];
+  const activePerson = people.find(p => p.id === selectedId);
   const credits = balance(selectedId);
   const thread = messages.filter(m => m.therapist === selectedId);
-  const hasCredits = credits.texts + credits.voices > 0;
+  const hasCredits = credits.texts + credits.voiceSeconds > 0;
+  const isLowCredits = (credits.texts > 0 && credits.texts <= 5) || (credits.voiceSeconds > 0 && credits.voiceSeconds <= 60);
 
   const s = settings(selectedId);
-  const now = new Date();
-  const currentHour = now.getHours();
-  const currentDay = now.getDay();
-  const chatStartH = Number(s.chatStart.split(':')[0]);
-  const chatEndH = Number(s.chatEnd.split(':')[0]);
-  const isAvailableNow = s.chatDays.includes(currentDay) && currentHour >= chatStartH && currentHour < chatEndH;
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setClock(Date.now()), 15000);
+    return () => clearInterval(timer);
+  }, []);
+
+  function getTherapistAvailability(therapistId: number) {
+    const ps = settings(therapistId);
+    const local = new Date(clock + 3 * 60 * 60 * 1000);
+    const day = local.getUTCDay();
+    const minute = local.getUTCHours() * 60 + local.getUTCMinutes();
+    const toMinutes = (value: string) => { const [h, m] = value.split(':').map(Number); return h * 60 + m; };
+    const start = toMinutes(ps.chatStart);
+    const end = toMinutes(ps.chatEnd);
+    const overnight = end < start;
+    const inWindow = overnight
+      ? (ps.chatDays.includes(day) && minute >= start) || (ps.chatDays.includes((day + 6) % 7) && minute < end)
+      : ps.chatDays.includes(day) && minute >= start && minute < end;
+    const isOnline = ps.presence !== 'offline' && inWindow;
+    return { isOnline, minsLeft: isOnline ? (end - minute + 1440) % 1440 : 0, start: ps.chatStart, end: ps.chatEnd };
+  }
+  const { isOnline: isAvailableNow, minsLeft: minutesUntilOffline } = getTherapistAvailability(selectedId);
+
+  const cycleTheme = () => {
+    if (theme === 'white') setTheme('dark');
+    else if (theme === 'dark') setTheme('colorful');
+    else setTheme('white');
+  };
 
   useEffect(() => {
     alive.current = true;
     return () => {
       alive.current = false;
-      if (timer.current) clearInterval(timer.current);
-      if (recorder.current && recorder.current.state === 'recording') {
-        recorder.current.onstop = null;
-        recorder.current.stop();
+      pointerHeld.current = false;
+      isCanceledRef.current = true;
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (recorderRef.current && recorderRef.current.state === 'recording') {
+        recorderRef.current.stop();
       }
-      stream.current?.getTracks().forEach(track => track.stop());
+      streamRef.current?.getTracks().forEach(track => track.stop());
     };
   }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, selectedId]);
+  }, [messages, selectedId, isTherapistTyping]);
 
-  useEffect(() => () => {
-    if (draftAudio) URL.revokeObjectURL(draftAudio);
-  }, [draftAudio]);
-
-  async function startRecording() {
+  // ── HOLD-TO-RECORD VOICE NOTE (PUSH-TO-TALK WITH SLIDE-TO-CANCEL) ──
+  async function handleVoicePointerDown(e: React.PointerEvent<HTMLButtonElement>) {
+    e.preventDefault();
+    if (pointerHeld.current || recorderRef.current || sendingRef.current) return;
+    pointerHeld.current = true;
     setErrorMessage('');
-    if (!credits.voices) return;
-    setPermissionPending(true);
+    isCanceledRef.current = false;
+    setIsSlidToCancel(false);
+
+    if (!credits.voiceSeconds) {
+      pointerHeld.current = false;
+      setErrorMessage(t('No voice credits remaining. Add a package to send audio.', 'የድምፅ ክሬዲት አልቋል። ጥቅል ይግዙ።'));
+      setErrorMessage('Messaging is available without prepaid credits. Each voice file can be up to 100 MB.');
+      return;
+    }
+
     try {
-      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') throw Error();
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+        pointerHeld.current = false;
+        setErrorMessage(t('Microphone is not supported in this browser.', 'ማይክሮፎን አይደገፍም።'));
+        return;
+      }
+
+      // Capture pointer so releasing anywhere triggers PointerUp
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {}
+
+      touchStartPos.current = { x: e.clientX, y: e.clientY };
+
       const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (!alive.current) { mediaStream.getTracks().forEach(t => t.stop()); return; }
-      stream.current = mediaStream;
-      const rec = new MediaRecorder(mediaStream);
-      recorder.current = rec;
-      const chunks: BlobPart[] = [];
-      rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
-      rec.onstop = () => {
-        if (timer.current) clearInterval(timer.current);
+      if (!alive.current || !pointerHeld.current) {
         mediaStream.getTracks().forEach(t => t.stop());
-        if (alive.current) {
-          setRecording(false);
-          if (chunks.length) setDraftAudio(URL.createObjectURL(new Blob(chunks, { type: rec.mimeType })));
+        return;
+      }
+      streamRef.current = mediaStream;
+
+      const rec = createVoiceRecorder(mediaStream);
+      recorderRef.current = rec;
+      recordedChunks.current = [];
+
+      rec.ondataavailable = ev => {
+        if (ev.data.size) recordedChunks.current.push(ev.data);
+      };
+
+      rec.onstop = async () => {
+        recorderRef.current = null;
+        pointerHeld.current = false;
+        if (alive.current) setIsHoldingVoice(false);
+        if (timerRef.current) clearInterval(timerRef.current);
+        mediaStream.getTracks().forEach(t => t.stop());
+
+        const elapsed = stoppedDuration.current || performance.now() - holdStartTime.current;
+        if (alive.current && !isCanceledRef.current && elapsed >= 350 && recordedChunks.current.length > 0) {
+          const blob = new Blob(recordedChunks.current, { type: rec.mimeType || 'audio/webm' });
+          const audioUrl = URL.createObjectURL(blob);
+          sendingRef.current = true; setSending(true);
+          const ok = await send(selectedId, 'voice', audioUrl, elapsed / 1000);
+          URL.revokeObjectURL(audioUrl);
+          sendingRef.current = false;
+          if (alive.current) { setSending(false); if (!ok) setErrorMessage('Voice note could not be sent. Please retry.'); } else {
+            URL.revokeObjectURL(audioUrl);
+            setErrorMessage(t('Not enough voice time. Please top up.', 'በቂ የድምፅ ጊዜ የለም። ጥቅል ይግዙ።'));
+          }
         }
       };
+
       rec.start();
+      // This timestamp is captured in the pointer event after microphone permission.
+      // eslint-disable-next-line react-hooks/purity
+      holdStartTime.current = performance.now();
+      stoppedDuration.current = 0;
+      setIsHoldingVoice(true);
       setRecordSeconds(0);
-      setRecording(true);
-      let elapsed = 0;
-      timer.current = setInterval(() => {
-        elapsed++;
-        setRecordSeconds(elapsed);
-        if (elapsed >= 60 && rec.state === 'recording') rec.stop();
-      }, 1000);
-    } catch {
-      stream.current?.getTracks().forEach(t => t.stop());
-      setErrorMessage(t('Microphone access is unavailable. Please grant microphone permissions or send text.', 'ማይክሮፎን አልተገኘም።'));
-    } finally {
-      if (alive.current) setPermissionPending(false);
-    }
-  }
-
-  function handleSelectPerson(newId: number) {
-    if (recording || permissionPending) return;
-    if (draftAudio) URL.revokeObjectURL(draftAudio);
-    setDraftAudio('');
-    setSelectedId(newId);
-    setInputText('');
-    setErrorMessage('');
-    setShowMobileList(false);
-  }
-
-  async function handleSendAudio() {
-    if (sendingAudio.current) return;
-    sendingAudio.current = true;
-    try {
-      const blob = await fetch(draftAudio).then(r => r.blob());
-      const permanentUrl = URL.createObjectURL(blob);
-      if (send(selectedId, 'voice', permanentUrl)) {
-        setDraftAudio('');
-      } else {
-        URL.revokeObjectURL(permanentUrl);
-        setErrorMessage(t('No voice credits remaining. Add a package to continue.', 'የድምፅ ክሬዲት አልቋል።'));
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        navigator.vibrate?.(40);
       }
+
+      timerRef.current = setInterval(() => {
+        const sec = (performance.now() - holdStartTime.current) / 1000;
+        setRecordSeconds(Math.floor(sec));
+        if (sec >= credits.voiceSeconds && rec.state === 'recording') {
+          handleVoicePointerUp(e);
+        }
+      }, 100);
     } catch {
-      setErrorMessage(t('Could not send recording. Please try again.', 'መላክ አልተቻለም።'));
-    } finally {
-      sendingAudio.current = false;
+      pointerHeld.current = false;
+      streamRef.current?.getTracks().forEach(track => track.stop());
+      recorderRef.current = null;
+      setErrorMessage(t('Microphone permission denied.', 'ማይክሮፎን አልተፈቀደም።'));
     }
   }
 
-  function handleSendText() {
-    if (send(selectedId, 'text', inputText.trim())) {
-      setInputText('');
-      setErrorMessage('');
+  function handleVoicePointerMove(e: React.PointerEvent<HTMLButtonElement>) {
+    if (!isHoldingVoice) return;
+    const deltaX = touchStartPos.current.x - e.clientX;
+    // If dragged more than 60px to the left, mark as canceled
+    if (deltaX > 60) {
+      if (!isCanceledRef.current) {
+        isCanceledRef.current = true;
+        setIsSlidToCancel(true);
+        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+          navigator.vibrate?.(25);
+        }
+      }
     } else {
-      setErrorMessage(t('A text credit is required. Messages must be 1–2,000 characters.', 'የጽሑፍ ክሬዲት ያስፈልጋል።'));
+      if (isCanceledRef.current) {
+        isCanceledRef.current = false;
+        setIsSlidToCancel(false);
+      }
     }
+  }
+
+  function handleVoicePointerUp(e: React.PointerEvent<HTMLButtonElement>) {
+    pointerHeld.current = false;
+    if (!recorderRef.current || recorderRef.current.state !== 'recording') return;
+    stoppedDuration.current = performance.now() - holdStartTime.current;
+    setIsHoldingVoice(false);
+    if (timerRef.current) clearInterval(timerRef.current);
+
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {}
+
+    const elapsed = performance.now() - holdStartTime.current;
+    if (isCanceledRef.current) {
+      setErrorMessage(t('Voice recording canceled.', 'የድምፅ ቅጂው ተሰርዟል።'));
+      setTimeout(() => setErrorMessage(''), 2500);
+    } else if (elapsed < 350) {
+      setErrorMessage(t('Hold button down to record, release to send.', 'ለመቅዳት ተጭነው ይያዙ፣ ለመላክ ይልቀቁ።'));
+      setTimeout(() => setErrorMessage(''), 3000);
+    }
+
+    if (recorderRef.current && recorderRef.current.state === 'recording') {
+      recorderRef.current.stop();
+    }
+    setIsSlidToCancel(false);
+  }
+
+  function handleVoicePointerCancel(e: React.PointerEvent<HTMLButtonElement>) {
+    isCanceledRef.current = true;
+    handleVoicePointerUp(e);
+  }
+
+  async function handleSendText(customText?: string) {
+    const text = (customText ?? inputText).trim();
+    if (!text || sendingRef.current) return;
+    sendingRef.current = true; setSending(true);
+    const ok = await send(selectedId, 'text', text);
+    sendingRef.current = false; setSending(false);
+    if (ok) { setInputText(''); setErrorMessage(''); } else setErrorMessage('Message failed. Please retry.');
   }
 
   function handleInstantBuy(bundleId: string) {
     if (buy(selectedId, bundleId)) {
       setQuickPackageModal(false);
       setErrorMessage('');
+      setPurchaseNotice(t('Credits added. You’re ready to continue.', 'ክሬዲት ተጨምሯል። መቀጠል ይችላሉ።'));
     }
   }
 
-  return (
-    <>
-      <Header />
-      <main className={`messenger ${showMobileList ? 'show-list' : ''}`}>
+  if (!userId) return <main className="platform-main"><h1>Private messaging</h1><Link className="solid" href="/account">Sign in or create an account</Link></main>;
+  if (ownTherapistId) return <main className="platform-main"><Link className="solid" href="/portal">Open your client conversations</Link></main>;
+  if (!activePerson) return <main className="platform-main"><h1>No therapist selected</h1><p>Choose an approved practitioner from the directory. Newly registered practices appear after approval.</p><Link href="/therapists">Open directory</Link></main>;
 
-        {/* ── 1. CONVERSATIONS LIST SIDEBAR ── */}
-        <aside className="conversation-list">
-          <div className="conversation-title">
-            <h2>{t('Conversations', 'ውይይቶች')}</h2>
-            <small style={{ color: '#555' }}>{t('CONFIDENTIAL ASYNC CARE', 'ሚስጥራዊ ቻት')}</small>
+  return (
+    <div className="pure-fullscreen-chat">
+      {/* ── MESSENGER CANVAS (NO BIG TOP BAR AT ALL) ── */}
+      <div className={`chat-workspace-grid ${showMobileList ? 'mobile-show-sidebar' : ''}`}>
+
+        {/* ── LEFT: CONVERSATION LIST (SIDEBAR) ── */}
+        <aside className="chat-native-sidebar">
+          {/* Sidebar Top: Search & discreet exit link */}
+          <div className="native-sidebar-header">
+            <input
+              type="search"
+              placeholder={t('Search therapists…', 'ባለሙያ ፈልግ…')}
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+            {/* Small discreet exit button */}
+            <Link
+              href="/therapists"
+              className="discreet-exit-btn"
+              title={t('Exit to main platform', 'ወደ ዋናው ገጽ ተመለስ')}
+            >
+              ⌂
+            </Link>
           </div>
 
-          <label className="sr-only" htmlFor="therapist-chat-search">{t('Search therapists', 'ባለሙያ ፈልግ')}</label>
-          <input
-            id="therapist-chat-search"
-            type="search"
-            placeholder={t('Search therapists…', 'ባለሙያዎችን ፈልግ…')}
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-          />
-
-          <div style={{ flex: 1, overflowY: 'auto' }}>
+          <div className="native-contacts-scroll">
             {people
               .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
               .map(p => {
-                const ps = settings(p.id);
                 const isSelected = p.id === selectedId;
-                const pChatStart = Number(ps.chatStart.split(':')[0]);
-                const pChatEnd = Number(ps.chatEnd.split(':')[0]);
-                const pIsAvail = ps.chatDays.includes(currentDay) && currentHour >= pChatStart && currentHour < pChatEnd;
+                const avail = getTherapistAvailability(p.id);
                 const msgCount = messages.filter(m => m.therapist === p.id).length;
 
                 return (
                   <button
-                    className="conversation-item"
                     key={p.id}
-                    aria-pressed={isSelected}
-                    onClick={() => handleSelectPerson(p.id)}
+                    className={`native-contact-item ${isSelected ? 'selected' : ''}`}
+                    onClick={() => {
+                      setPurchaseNotice('');
+                      setErrorMessage('');
+                      setSelectedId(p.id);
+                      setShowMobileList(false);
+                    }}
                   >
-                    <Photo id={p.id} name={p.name} />
-                    <span style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: 1, minWidth: 0 }}>
-                      <strong style={{ fontSize: '13px' }}>{p.name}</strong>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px' }}>
-                        <span className={`chat-avail-dot ${pIsAvail ? 'live' : ''}`} />
-                        <span style={{ opacity: 0.8 }}>
-                          {pIsAvail ? t('Available now', 'አሁን ዝግጁ') : `${ps.chatStart}–${ps.chatEnd}`}
-                        </span>
+                    <div className="native-avatar-wrap">
+                      <Photo id={p.id} name={p.name} src={settings(p.id).photo} />
+                      <span className={`native-dot ${avail.isOnline ? 'online' : ''}`} />
+                    </div>
+                    <div className="native-contact-details">
+                      <div className="native-name-row">
+                        <strong>{p.name}</strong>
+                        {msgCount > 0 && <span className="native-count-badge">{msgCount}</span>}
                       </div>
-                      {msgCount > 0 && (
-                        <small style={{ opacity: 0.7 }}>{msgCount} {t('messages', 'መልዕክቶች')}</small>
-                      )}
-                    </span>
+                      <small className="native-title-line">{p.title}</small>
+                      <span className="native-avail-line">
+                        {avail.isOnline
+                          ? avail.minsLeft <= 60
+                            ? `🟢 ${t(`Online · may leave in ~${avail.minsLeft}m`, `ዝግጁ (በ ~${avail.minsLeft}ደ ያበቃል)`)}`
+                            : `🟢 ${t(`Online until ${avail.end}`, `እስከ ${avail.end} ዝግጁ`)}`
+                          : `⚪ ${t(`Offline · Hours ${avail.start}–${avail.end}`, `የሥራ ሰዓት: ${avail.start}–${avail.end}`)}`}
+                      </span>
+                    </div>
                   </button>
                 );
               })}
           </div>
         </aside>
 
-        {/* ── 2. ACTIVE CHAT THREAD ── */}
-        <section className="conversation-panel">
-          <header className="conversation-header">
-            <button className="mobile-back-btn" onClick={() => setShowMobileList(true)}>
-              ← {t('All Chats', 'ሁሉም')}
+        {/* ── RIGHT / CENTER: ACTIVE CHAT THREAD ── */}
+        <section className="chat-native-main">
+          {/* Authentic Native Chat Header */}
+          <header className="native-chat-header">
+            {/* Mobile back to contacts button */}
+            <button
+              type="button"
+              className="native-mobile-back"
+              onClick={() => setShowMobileList(true)}
+              aria-label={t('Back to chats', 'ወደ ውይይቶች')}
+            >
+              ←
             </button>
-            <Photo id={selectedId} name={activePerson.name} />
-            <div>
-              <h2>{activePerson.name}</h2>
-              <div className="chat-availability-pill">
-                <span className={`chat-avail-dot ${isAvailableNow ? 'live' : ''}`} />
-                {isAvailableNow ? (
-                  <strong style={{ color: '#006500' }}>
-                    {t('Available now for messages', 'አሁን ለመልዕክት ዝግጁ ናቸው')} · {t(`until ${s.chatEnd}`, `እስከ ${s.chatEnd}`)}
-                  </strong>
-                ) : (
-                  <span>
-                    {t(`Replies during chat hours (${s.chatStart}–${s.chatEnd})`, `በቻት ሰዓት (${s.chatStart}–${s.chatEnd}) ምላሽ ይሰጣል`)}
+
+            {/* Well-Aligned Profile Photo + Name + Online Status */}
+            <div className="native-profile-group">
+              <div className="native-avatar-wrap">
+                <Photo id={selectedId} name={activePerson.name} src={s.photo} />
+                <span className={`native-dot ${isAvailableNow ? 'online' : ''}`} />
+              </div>
+              <div className="native-profile-text">
+                <div className="native-name-inline">
+                  <h2>{activePerson.name}</h2>
+                  {activePerson.badge && (
+                    <span className="admin-badge green mini-badge">{activePerson.badge}</span>
+                  )}
+                </div>
+                <div className="native-status-inline">
+                  <span className={`native-dot-mini ${isAvailableNow ? 'online' : ''}`} />
+                  <span className="status-countdown-label">
+                    {isAvailableNow
+                      ? minutesUntilOffline <= 60
+                        ? t(`Online · may leave in ~${minutesUntilOffline} min`, `በመስመር ላይ · በ ~${minutesUntilOffline} ደቂቃ ውስጥ ያበቃል`)
+                        : t(`Online until ${s.chatEnd} (~${Math.floor(minutesUntilOffline / 60)}h ${minutesUntilOffline % 60}m left)`, `በመስመር ላይ እስከ ${s.chatEnd}`)
+                      : t(`Offline · Active ${s.chatStart}–${s.chatEnd}`, `ከመስመር ውጭ · የሥራ ሰዓት: ${s.chatStart}–${s.chatEnd}`)}
                   </span>
-                )}
+                </div>
               </div>
             </div>
 
-            <button
-              onClick={() => setQuickPackageModal(true)}
-              style={{ fontSize: '11px', padding: '7px 12px', flexShrink: 0 }}
-            >
-              + {t('Add Credits', 'ክሬዲት ጨምር')}
-            </button>
+            {/* Right Header Actions: Theme toggle, Consultation link & Discreet exit */}
+            <div className="native-header-actions">
+              <button type="button" className="native-book-icon-btn" aria-label="Start audio call" onClick={() => { void ensureConversation(selectedId).then(requestCall).catch(error => setErrorMessage(error.message)); }}>📞</button>
+              <button
+                type="button"
+                className="native-theme-chip"
+                onClick={cycleTheme}
+                title={t(`Theme: ${theme}. Click to switch.`, `ገጽታ: ${theme}`)}
+                aria-label={t(`Current theme: ${theme}`, `አሁን ያለው ገጽታ: ${theme}`)}
+              >
+                {theme === 'white' ? '☀' : theme === 'dark' ? '🌙' : '🎨'}
+              </button>
+
+              <Link
+                href={`/schedule/${selectedId}`}
+                className="native-book-icon-btn"
+                title={t('Book Live Consultation', 'ቀጠሮ ያዙ')}
+              >
+                📅
+              </Link>
+
+              {/* Small discreet exit button to access main site */}
+              <Link
+                href="/therapists"
+                className="discreet-exit-btn"
+                title={t('Exit chat to main platform', 'ወደ ዋናው ገጽ ተመለስ')}
+                aria-label={t('Exit chat to main platform', 'ወደ ዋናው ገጽ ተመለስ')}
+              >
+                ⌂
+              </Link>
+            </div>
           </header>
 
-          {/* Balance & info bar */}
-          <div className="balance-bar">
-            <span>
-              <strong>{credits.texts}</strong> {t('texts', 'ጽሑፍ')} &nbsp;·&nbsp;
-              <strong>{credits.voices}</strong> {t('voice notes', 'ድምፅ')}
-            </span>
-            {!hasCredits ? (
-              <button
-                onClick={() => setQuickPackageModal(true)}
-                style={{ background: 'none', border: 'none', padding: 0, textDecoration: 'underline', cursor: 'pointer', fontSize: '11px' }}
-              >
-                {t('Purchase credits to begin chatting →', 'ለመወያየት ጥቅል ይግዙ →')}
-              </button>
-            ) : (
-              <span style={{ color: '#666' }}>{t('Async messaging · private on your device', 'ሚስጥራዊ ውይይት')}</span>
-            )}
-          </div>
+          {/* Chat Stream with Authentic WhatsApp/Telegram Doodle Wallpaper */}
+          <div className="native-wallpaper-canvas" aria-label={t('Chat message history', 'የመልዕክት ታሪክ')}>
+            {/* Shift hours & Clinical discretion notice */}
+            <div className="therapist-discretion-note">
+              <span>
+                ℹ️ {t(`Chat hours: ${s.chatStart}–${s.chatEnd} (Addis Ababa). These are practice hours; replies depend on your practitioner.`, `የሥራ ሰዓት: ${s.chatStart}–${s.chatEnd}። ባለሙያው እንደ አስፈላጊነቱ ከተጠቀሰው ሰዓት በላይ ሊቆዩ ይችላሉ።`)}
+              </span>
+            </div>
 
-          {/* Message Thread History */}
-          <div className="message-history" aria-label={t('Chat message history', 'የመልዕክት ታሪክ')}>
-            {!thread.length && (
-              <div className="empty-chat-art-box">
-                <div className="art-frame">
-                  <Image src="/img-unseen.png" alt="" width={140} height={140} unoptimized />
+            {/* Credit Depleted Alert: Tells clients they cannot communicate until top up */}
+            {!hasCredits && (
+              <div className="credit-depleted-alert-card">
+                <div className="alert-content-left">
+                  <strong>⚠ {t('Message Credits Depleted', 'የመልዕክት ክሬዲት አልቋል')}</strong>
+                  <p>
+                    {t(
+                      `You have no text credits or voice minutes remaining. Top up your package to continue private messaging with ${activePerson.name}.`,
+                      `ከ ${activePerson.name} ጋር ለመወያየት ክሬዲት አልቋል። መልዕክት ለመላክ እባክዎ ጥቅል ይግዙ።`
+                    )}
+                  </p>
                 </div>
-                <span className="eyebrow">{t('FIG. 04 / A SAFE SANCTUARY', 'ምስል 04 / አስተማማኝ መጠጊያ')}</span>
-                <h3>{t('Your words are welcome here.', 'ሀሳብዎን በነጻነት ያካፍሉ።')}</h3>
+                <button
+                  type="button"
+                  className="solid compact alert-action-btn"
+                  onClick={() => setQuickPackageModal(true)}
+                >
+                  + {t('Top Up Credits', 'ክሬዲት ጨምር')}
+                </button>
+              </div>
+            )}
+
+            <div className="native-date-bubble">
+              <span>{t('TODAY · CONFIDENTIAL COUNSELING', 'ዛሬ · ሚስጥራዊ የሕክምና ውይይት')}</span>
+            </div>
+
+            {!thread.length && (
+              <div className="native-empty-box">
+                <span style={{ fontSize: '28px' }}>💬</span>
+                <h3>{t('Safe & Private Sanctuary', 'አስተማማኝ መጠጊያ')}</h3>
                 <p>
                   {isAvailableNow
-                    ? t(`${activePerson.name} is currently available during chat hours.`, `${activePerson.name} አሁን በሥራ ሰዓት ላይ ይገኛሉ።`)
-                    : t(`${activePerson.name} reviews messages daily between ${s.chatStart} and ${s.chatEnd} (UTC+3).`, `${activePerson.name} በየቀኑ ከ ${s.chatStart} እስከ ${s.chatEnd} መልዕክቶችን ያያሉ።`)}
+                    ? t(
+                        `${activePerson.name} is online. Type a message or hold the mic button to record a voice note.`,
+                        `${activePerson.name} አሁን በመስመር ላይ ናቸው። ጽሑፍ ይጻፉ ወይም ማይክሮፎኑን ተጭነው ይያዙ።`
+                      )
+                    : t(
+                        `${activePerson.name} reviews messages daily between ${s.chatStart} and ${s.chatEnd}.`,
+                        `${activePerson.name} በየቀኑ ከ ${s.chatStart} እስከ ${s.chatEnd} መልዕክቶችን ያያሉ።`
+                      )}
                 </p>
                 {!hasCredits && (
-                  <button className="solid" style={{ marginTop: '16px' }} onClick={() => setQuickPackageModal(true)}>
-                    💬 {t('Buy a Voice & Text Package', 'የቻት ጥቅል ይግዙ')}
+                  <button
+                    className="solid compact"
+                    style={{ marginTop: '10px' }}
+                    onClick={() => setQuickPackageModal(true)}
+                  >
+                    + {t('Add Voice & Text Package', 'የቻት ጥቅል ይግዙ')}
                   </button>
                 )}
               </div>
             )}
 
-            {thread.map(m => (
-              <article key={m.id} className={`message ${m.from}`}>
-                <small>{m.from === 'client' ? t('You', 'እርስዎ') : activePerson.name}</small>
-                {m.text && <p>{m.text}</p>}
-                {m.audio && <audio controls src={m.audio} aria-label={t('Voice recording', 'የድምፅ ቅጂ')} />}
-                <time>
-                  {new Date(m.at).toLocaleTimeString(lang === 'am' ? 'am-ET' : 'en-GB', { hour: '2-digit', minute: '2-digit' })}
-                </time>
-              </article>
-            ))}
+            {/* Render Messages */}
+            <AnimatePresence initial={false}>
+              {thread.map(m => {
+                const isMe = m.from === 'client';
+                return (
+                  <motion.div
+                    key={m.id}
+                    initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className={`native-msg-row ${isMe ? 'out' : 'in'}`}
+                  >
+                    <div className="native-bubble">
+                      <small className="native-bubble-author">
+                        {isMe ? t('You', 'እርስዎ') : activePerson.name}
+                      </small>
+                      {m.text && <p className="native-bubble-body">{m.text}</p>}
+                      {m.audio && (
+                        <div className="native-bubble-audio">
+                          <PrivateAudio src={m.audio} />
+                          {m.durationSeconds && <small>{formatVoiceTime(m.durationSeconds)} {t('voice min used', 'የድምፅ ደቂቃ ተጠቅመዋል')}</small>}
+                        </div>
+                      )}
+                      <div className="native-bubble-meta">
+                        <time>
+                          {new Date(m.at).toLocaleTimeString(lang === 'am' ? 'am-ET' : 'en-GB', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </time>
+                        {isMe && <span className="native-ticks">✓✓</span>}
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+
+            {/* Live Typing Indicator */}
+            {isTherapistTyping && (
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="native-msg-row in"
+              >
+                <div className="native-bubble native-typing-bubble">
+                  <div className="typing-dots-anim">
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                  <small>{activePerson.name} {t('is typing…', 'በመጻፍ ላይ ናቸው…')}</small>
+                </div>
+              </motion.div>
+            )}
+
+            <button type="button" onClick={loadMoreMessages}>Load earlier messages</button>
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Composer */}
-          <div className="composer">
-            {errorMessage && <p role="alert" style={{ color: '#c00', fontSize: '12px', margin: '0 0 8px' }}>{errorMessage}</p>}
+          {/* Quick Suggestions Chips */}
+          <div className="native-suggestions-strip">
+            {CONVERSATION_STARTERS.map((text, i) => (
+              <button
+                key={i}
+                type="button"
+                className="native-suggestion-chip"
+                onClick={() => setInputText(text)}
+              >
+                {text.slice(0, 34)}…
+              </button>
+            ))}
+          </div>
+
+          {/* Composer with Push-To-Talk Hold & Release */}
+          <footer className="native-composer-dock">
+            {/* Quick Balance & Package Link in Composer */}
+            <div className="native-composer-balance-bar" aria-live="polite">
+              <span className="balance-tokens">
+                💬 <strong>∞</strong> {t('texts', 'ጽሑፎች')} · 🎙️ <strong>∞</strong> {t('voice min', 'የድምፅ ደቂቃ')}
+              </span>
+              <button
+                type="button"
+                className="balance-topup-btn"
+                onClick={() => setQuickPackageModal(true)}
+              >
+                {t('Messaging information', 'የውይይት መረጃ')}
+              </button>
+            </div>
+
+            {/* Low Credit Warning Pill */}
+            {isLowCredits && (
+              <div className="credit-low-alert-pill" role="status">
+                <span>
+                  ⚠ {t(`Balance: ${credits.texts} texts · ${formatVoiceTime(credits.voiceSeconds)} voice minutes. Top up to keep sending.`, `የቀረው: ${credits.texts} ጽሑፎች · ${formatVoiceTime(credits.voiceSeconds)} የድምፅ ደቂቃ። ለመቀጠል ጥቅል ይግዙ።`)}
+                </span>
+                <button type="button" onClick={() => setQuickPackageModal(true)}>
+                  {t('Top up →', 'ጥቅል ግዛ →')}
+                </button>
+              </div>
+            )}
+
+            {purchaseNotice && <div role="status" className="native-error-bar">✓ {purchaseNotice}</div>}
+            {errorMessage && (
+              <div role="alert" className="native-error-bar">
+                ⚠ {errorMessage}
+              </div>
+            )}
 
             {!hasCredits ? (
-              <div className="locked-composer">
-                <p>{t('A voice or text credit package is required to send messages.', 'መልዕክት ለመላክ የቻት ጥቅል ያስፈልጋል።')}</p>
-                <button className="solid" onClick={() => setQuickPackageModal(true)}>
+              <div className="native-locked-bar">
+                <span>{t('Prepaid credit package required to send messages.', 'መልዕክት ለመላክ ጥቅል ያስፈልጋል።')}</span>
+                <button className="solid compact" onClick={() => setQuickPackageModal(true)}>
                   {t('Get Credits', 'ጥቅል ግዛ')}
                 </button>
               </div>
-            ) : recording ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '8px 0' }}>
-                <span style={{ width: '10px', height: '10px', background: '#c00', borderRadius: '50%', display: 'inline-block' }} />
-                <strong>{t('Recording audio', 'በቅዳት ላይ')}: {recordSeconds}/60s</strong>
-                <button onClick={() => recorder.current?.stop()}>{t('Stop & Preview', 'አቁምና አዳምጥ')}</button>
-              </div>
-            ) : draftAudio ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                <audio controls src={draftAudio} style={{ flex: 1, minWidth: '220px' }} />
-                <button onClick={() => setDraftAudio('')}>{t('Discard', 'ሰርዝ')}</button>
-                <button className="solid" onClick={handleSendAudio}>{t('Send Voice Note', 'ድምፅ ላክ')}</button>
-              </div>
-            ) : (
-              <>
-                <div className="compose-row">
-                  <textarea
-                    aria-label={t('Message box', 'የመልዕክት መጻፊያ')}
-                    placeholder={credits.texts > 0 ? t('Type your message here…', 'መልዕክትዎን እዚህ ይጻፉ…') : t('Add text credits to type', 'የጽሑፍ ክሬዲት ይጨምሩ')}
-                    value={inputText}
-                    maxLength={2000}
-                    disabled={!credits.texts}
-                    onChange={e => setInputText(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSendText();
-                      }
-                    }}
-                  />
-                  <button
-                    disabled={!credits.voices || permissionPending}
-                    onClick={startRecording}
-                    title={t('Record voice note (up to 60s)', 'የድምፅ መልዕክት ቅረፅ')}
-                    style={{ fontSize: '16px', padding: '0 16px' }}
-                  >
-                    🎙️
-                  </button>
-                  <button
-                    className="solid"
-                    disabled={!inputText.trim() || !credits.texts}
-                    onClick={handleSendText}
-                  >
-                    {t('Send', 'ላክ')}
-                  </button>
+            ) : (<>
+            {isHoldingVoice && (
+              /* HOLDING VOICE ACTIVE STRIP (TELEGRAM / WHATSAPP PUSH-TO-TALK) */
+              <div className={`native-voice-recording-strip ${isSlidToCancel ? 'canceling' : ''}`}>
+                <div className="recording-wave-indicator">
+                  <span className="native-recording-pulsar" />
+                  <span className="wave-bar b1" />
+                  <span className="wave-bar b2" />
+                  <span className="wave-bar b3" />
+                  <span className="wave-bar b4" />
                 </div>
-                <small style={{ color: '#666', marginTop: '6px', display: 'block' }}>
-                  {inputText.length}/2,000 · {t('1 text credit per message · Shift+Enter for newline', '1 ክሬዲት በየመልዕክቱ')}
-                </small>
-              </>
+                <div className="recording-hold-text">
+                  <strong>
+                    {isSlidToCancel
+                      ? t('Release to cancel recording ✕', 'ለመሰረዝ ይልቀቁ ✕')
+                      : `${t('Recording voice note…', 'ድምፅ በመቅዳት ላይ…')} (${formatVoiceTime(recordSeconds)})`}
+                  </strong>
+                  <small>
+                    {isSlidToCancel
+                      ? t('Audio will not be sent', 'ድምፁ አይላክም')
+                      : t('Release finger to send · ◀ Slide left to cancel', 'ለመላክ ጣትዎን ያንሱ · ◀ ለመሰረዝ ወደ ግራ ይጎትቱ')}
+                  </small>
+                </div>
+              </div>
             )}
-          </div>
+              <div className="native-input-bar">
+                <textarea
+                  rows={1}
+                  aria-label={t('Message box', 'የመልዕክት መጻፊያ')}
+                  placeholder={
+                    credits.texts > 0
+                      ? t('Type message… (Enter to send)', 'መልዕክት ይጻፉ…')
+                      : t('Add text credits to message', 'የጽሑፍ ክሬዲት ይጨምሩ')
+                  }
+                  value={inputText}
+                  maxLength={2000}
+                  disabled={!credits.texts || isHoldingVoice}
+                  onChange={e => setInputText(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendText();
+                    }
+                  }}
+                />
+
+                {/* PUSH-TO-TALK HOLD & RELEASE BUTTON */}
+                <button
+                  type="button"
+                  className={`native-mic-hold-btn ${isHoldingVoice ? 'recording' : ''}`}
+                  onPointerDown={handleVoicePointerDown}
+                  onPointerMove={handleVoicePointerMove}
+                  onPointerUp={handleVoicePointerUp}
+                  onPointerCancel={handleVoicePointerCancel}
+                  onContextMenu={e => e.preventDefault()}
+                  title={t('Hold finger down to record audio, release to send', 'ተጭነው በመያዝ ድምፅ ይቅረጹ')}
+                  aria-label={t('Hold to record voice message', 'ተጭነው በመያዝ ድምፅ ይቅረጹ')}
+                >
+                  <Mic size={20} aria-hidden="true" />
+                </button>
+
+                <button
+                  type="button"
+                  className="solid native-send-btn"
+                  disabled={sending || !inputText.trim() || !credits.texts}
+                  onClick={() => handleSendText()}
+                  aria-label={t('Send message', 'መልዕክት ላክ')}
+                >
+                  <Send size={18} aria-hidden="true" />
+                </button>
+              </div>
+              <small className="voice-composer-hint">{t('Hold to record · Release to send · Slide left to cancel', 'ለመቅዳት ማይክሮፎኑን ይያዙ · ለመላክ ይልቀቁ · ለመሰረዝ ወደ ግራ ይጎትቱ')}</small>
+            </>)}
+          </footer>
         </section>
-
-        {/* ── 3. THERAPIST INFO & SCHEDULE (DESKTOP RIGHT SIDEBAR) ── */}
-        <aside className="chat-info-panel">
-          <div className="chat-info-panel-title">
-            {t('Therapist Profile', 'የባለሙያ መረጃ')}
-          </div>
-
-          <div className="chat-info-section">
-            <h4 style={{ color: '#000' }}>{activePerson.name}</h4>
-            <p className="muted" style={{ fontSize: '11px' }}>{activePerson.title}</p>
-            <div style={{ marginTop: '8px' }}>
-              <Presence id={selectedId} />
-            </div>
-          </div>
-
-          {/* Availability schedule */}
-          <div className="chat-info-section">
-            <h4>{t('Chat Availability Hours', 'የቻት የሥራ ሰዓቶች')}</h4>
-            <div className="avail-schedule-grid">
-              {s.chatDays.map(d => {
-                const isToday = d === currentDay;
-                return (
-                  <div key={d} className={`avail-schedule-row ${isToday ? 'active-day' : ''}`}>
-                    <span>{t(DAY_NAMES_SHORT[d], AM_DAY_NAMES[d])} {isToday ? `(${t('Today', 'ዛሬ')})` : ''}</span>
-                    <span>{s.chatStart} – {s.chatEnd}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Session booking direct link */}
-          <div className="chat-info-section">
-            <h4>{t('Book a Live Session', 'የቀጥታ ቀጠሮ ያዙ')}</h4>
-            <p>💻 {t('Online Video', 'ኦንላይን')}: <strong>{money(s.online)}</strong></p>
-            <p>🏥 {t('In-Person Office', 'በአካል')}: <strong>{money(s.inperson)}</strong></p>
-            <Link
-              href={`/schedule/${selectedId}`}
-              className="solid compact"
-              style={{ marginTop: '12px', display: 'inline-flex' }}
-            >
-              📅 {t('Book Session', 'ቀጠሮ ያዙ')}
-            </Link>
-          </div>
-        </aside>
-      </main>
+      </div>
 
       {/* ── QUICK BUY PACKAGE MODAL ── */}
       {quickPackageModal && (
         <Modal title={t('Choose a Voice & Text Package', 'የቻት ጥቅል ይምረጡ')} close={() => setQuickPackageModal(false)}>
-          <p style={{ margin: '0 0 16px', fontSize: '14px', color: '#444' }}>
-            {t(`Add credits to message directly with ${activePerson.name}. Credits never expire in this demo.`, `ከ ${activePerson.name} ጋር ለመወያየት ክሬዲት ይጨምሩ።`)}
-          </p>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', margin: '20px 0' }}>
-            {bundles.map((b, i) => (
-              <div
-                key={b.id}
-                style={{ border: '3px solid #000', padding: '16px', textAlign: 'center', background: '#fbfbfb', display: 'flex', flexDirection: 'column' }}
-              >
-                <span className="eyebrow">
-                  {i === 0 ? t('STARTER', 'መጀመሪያ') : i === 1 ? t('REGULAR', 'መደበኛ') : t('EXTENDED', 'ሰፊ')}
-                </span>
-                <strong style={{ font: '26px Archivo Black,sans-serif', margin: '8px 0' }}>
-                  {money(discountedPrice(b.price, s.discount))}
-                </strong>
-                <p style={{ fontSize: '13px', margin: '4px 0 16px' }}>
-                  💬 {b.texts} {t('texts', 'ጽሑፍ')}<br />
-                  🎙️ {b.voices} {t('voice notes', 'ድምፅ')}
-                </p>
-                <button
-                  className="solid full"
-                  style={{ marginTop: 'auto', fontSize: '11px', padding: '10px' }}
-                  onClick={() => handleInstantBuy(b.id)}
-                >
-                  {t('Get Package', 'ግዛ')}
-                </button>
-              </div>
-            ))}
+          <div className="package-modal-header-intro">
+            <p>
+              {t(
+                `Credits are for ${activePerson.name}. Voice time is charged by recorded seconds, rounded up to the next second. Record for as long as your balance allows.`,
+                `ጥቅሉ ለ ${activePerson.name} ብቻ ነው። የድምፅ ጊዜ በተቀዳው ሰከንድ ይቀነሳል፤ ክፍልፋይ ወደ ቀጣዩ ሙሉ ሰከንድ ይጠጋጋል። ቀሪ ጊዜዎ እስከሚፈቅድ መቅዳት ይችላሉ።`
+              )}
+            </p>
           </div>
 
-          <small style={{ color: '#666', display: 'block', textAlign: 'center' }}>
-            {t('Simulated instant transaction. No credit card or live payment required.', 'የማሳያ ግዢ ነው። ምንም ክፍያ አይጠየቅም።')}
-          </small>
+          <div className="package-selection-grid">
+            {bundles.map((b, i) => {
+              const isPopular = i === 1;
+              const discounted = discountedPrice(b.price, s.discount);
+              const tierName =
+                i === 0 ? t('TEXT', 'ጽሑፍ') : i === 1 ? t('VOICE', 'ድምፅ') : t('TEXT + VOICE', 'ጽሑፍ + ድምፅ');
+
+              return (
+                <div key={b.id} className={`package-card ${isPopular ? 'popular' : ''}`}>
+                  {isPopular && (
+                    <span className="package-badge popular-tag">{t('RECOMMENDED', 'ተመራጭ')}</span>
+                  )}
+                  <span className="package-tier-name">{tierName}</span>
+                  <div className="package-price-wrap">
+                    <strong className="package-amount">{money(discounted)}</strong>
+                    {s.discount > 0 && <small className="package-discount-tag">-{s.discount}%</small>}
+                  </div>
+                  <ul className="package-features-list">
+                    <li>
+                      💬 <strong>{b.texts}</strong> {t('Text messages', 'የጽሑፍ መልዕክቶች')}
+                    </li>
+                    <li>
+                      🎙️ <strong>{b.voiceSeconds / 60}</strong> {t('Voice minutes', 'የድምፅ ደቂቃዎች')}
+                    </li>
+                    <li>{t('1.50 ETB/text · 7 ETB/voice min', '1.50 ብር/ጽሑፍ · 7 ብር/ድምፅ ደቂቃ')}</li>
+                    <li>🔒 {t('Unused credits never expire', 'ክሬዲት አያልፍበትም')}</li>
+                  </ul>
+                  <button
+                    className={`solid full ${isPopular ? 'primary-pack-btn' : ''}`}
+                    onClick={() => handleInstantBuy(b.id)}
+                  >
+                    ✓ {t('Add Package Now', 'አሁን ይግዙ')}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="package-modal-footnote">
+            <small>
+              ℹ️ {t('Paid packages are not enabled. Messaging is currently available without credits.', 'ተግባራዊ ማሳያ: ወዲያውኑ ይሰራል፣ እውነተኛ ክፍያ አያስፈልግም።')}
+            </small>
+          </div>
         </Modal>
       )}
-    </>
+    </div>
   );
 }
 
 export default function ChatPage() {
   return (
     <Suspense>
-      <ChatMessenger />
+      <TrueFullscreenChat />
     </Suspense>
   );
 }

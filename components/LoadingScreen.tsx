@@ -1,166 +1,169 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
-import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const quotes = [
-  { text: "Healing is not weakness. It is the most disciplined act of self-mastery.", author: "Addis Psychology Platform" },
-  { text: "The mind is the foundation of everything. Strengthen it.", author: "Dr. Selamawit Tadesse" },
-  { text: "Asking for help isn't vulnerability — it's strategy.", author: "Addis Psychology Platform" },
-  { text: "The bravest thing you can do is decide to know yourself better.", author: "Addis Psychology Platform" },
+  {
+    en: 'Healing is not weakness. It is the most disciplined act of self-mastery.',
+    am: 'መዳን ድካም አይደለም። የራስን ማንነት የመግዛት ጥበብ ነው።',
+    author: 'Addis Psychology Platform',
+  },
+  {
+    en: 'The shoe that fits one person pinches another; there is no recipe for living that suits all cases.',
+    am: 'ለአንዱ የተመቸው ጫማ ሌላውን ያጠባል፤ ለሁሉም የሚሆን አንድ ዓይነት የሕይወት ቀመር የለም።',
+    author: 'Carl Jung',
+  },
+  {
+    en: 'When we are no longer able to change a situation, we are challenged to change ourselves.',
+    am: 'ሁኔታዎችን መለወጥ በማንችልበት ጊዜ፣ ራሳችንን እንድንለውጥ እንፈተናለን።',
+    author: 'Viktor E. Frankl',
+  },
+  {
+    en: 'Asking for help isn’t vulnerability — it is profound tactical clarity.',
+    am: 'እርዳታ መጠየቅ ድካም ሳይሆን ከፍተኛ የአእምሮ ብልሃትና ግልጽነት ነው።',
+    author: 'Addis Psychology Platform',
+  },
+  {
+    en: 'The curious paradox is that when I accept myself just as I am, then I can change.',
+    am: 'የሚገርመው እውነት ራሴን እንዳለሁ ስቀበል ብቻ መለወጥ እችላለሁ።',
+    author: 'Carl Rogers',
+  },
+  {
+    en: 'Your feelings are valid visitors. Welcome them, understand them, and let them guide you.',
+    am: 'ስሜቶችዎ እንግዶች ናቸው። ተቀበሏቸው፣ አስተውሏቸው፣ ከዚያም ወደ ብርሃን ይምሯችሁ።',
+    author: 'Addis Psychology Platform',
+  },
+  {
+    en: 'Knowing your own darkness is the best method for dealing with the darknesses of others.',
+    am: 'የራስዎን ጨለማ ጠንቅቆ ማወቅ የሌሎችን ጨለማ ለመረዳት የተሻለው መንገድ ነው።',
+    author: 'Addis Clinical Collective',
+  },
 ];
 
-interface LoadingScreenProps {
-  onFinish: () => void;
-}
-
-export default function LoadingScreen({ onFinish }: LoadingScreenProps) {
+export default function LoadingScreen() {
+  const pathname = usePathname();
+  const [loading, setLoading] = useState(true);
+  const [quoteIndex, setQuoteIndex] = useState(0);
   const [progress, setProgress] = useState(0);
-  const [quoteIndex] = useState(() => Math.floor(Math.random() * quotes.length));
 
+  // Trigger on initial load and route changes (7 seconds)
   useEffect(() => {
-    const interval = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 100) { clearInterval(interval); setTimeout(onFinish, 700); return 100; }
-        return prev + 1.5;
-      });
-    }, 50);
-    return () => clearInterval(interval);
-  }, [onFinish]);
+    setLoading(true);
+    setProgress(0);
+    setQuoteIndex(Math.floor(Math.random() * quotes.length));
 
-  const quote = quotes[quoteIndex];
+    const startTime = Date.now();
+    const duration = 7000; // 7 seconds mindful transition
+
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const pct = Math.min(100, Math.round((elapsed / duration) * 100));
+      setProgress(pct);
+
+      if (pct >= 100) {
+        clearInterval(interval);
+        setTimeout(() => setLoading(false), 200);
+      }
+    }, 40);
+
+    return () => clearInterval(interval);
+  }, [pathname]);
+
+  // Lock document scrolling while full-screen loading is active
+  useEffect(() => {
+    if (loading) {
+      document.body.style.overflow = 'hidden';
+      document.documentElement.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
+    };
+  }, [loading]);
+
+  const activeQuote = quotes[quoteIndex];
 
   return (
-    <motion.div
-      className="fixed inset-0 bg-loading grid-pattern flex flex-col items-center justify-center overflow-hidden"
-      exit={{ opacity: 0, filter: 'blur(10px)', scale: 1.03 }}
-      transition={{ duration: 0.7, ease: 'easeInOut' }}
-    >
-      {/* Ambient glows */}
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full pointer-events-none"
-        style={{ background: 'radial-gradient(circle, rgba(0,212,170,0.08) 0%, transparent 70%)', filter: 'blur(40px)' }} />
-      <div className="absolute bottom-1/4 right-1/4 w-80 h-80 rounded-full pointer-events-none"
-        style={{ background: 'radial-gradient(circle, rgba(79,142,247,0.08) 0%, transparent 70%)', filter: 'blur(40px)' }} />
-
-      {/* Scan line effect */}
-      <motion.div
-        className="absolute inset-x-0 h-px pointer-events-none"
-        style={{ background: 'linear-gradient(90deg, transparent, rgba(0,212,170,0.4), transparent)' }}
-        animate={{ y: ['-100vh', '100vh'] }}
-        transition={{ duration: 6, repeat: Infinity, ease: 'linear', repeatDelay: 2 }}
-      />
-
-      {/* Orbiting particles */}
-      {[0, 1, 2].map(i => (
+    <AnimatePresence>
+      {loading && (
         <motion.div
-          key={i}
-          className="absolute w-1.5 h-1.5 rounded-full"
-          style={{
-            background: i === 0 ? 'var(--teal)' : i === 1 ? 'var(--electric-blue)' : 'var(--gold)',
-            top: '50%', left: '50%',
-          }}
-          animate={{ rotate: 360 }}
-          transition={{
-            duration: 8 + i * 4,
-            repeat: Infinity,
-            ease: 'linear',
-            delay: i * 2,
-          }}
-        />
-      ))}
+          key="route-loader"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.4, ease: 'easeInOut' }}
+          className="fullscreen-loading-screen"
+          onClick={() => setLoading(false)}
+          role="status"
+          aria-live="polite"
+        >
+          {/* Subtle brutalist grid overlay */}
+          <div className="fullscreen-loading-grid" />
 
-      {/* Logo */}
-      <motion.div
-        initial={{ opacity: 0, y: -24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 0.1 }}
-        className="flex flex-col items-center mb-12"
-      >
-        {/* Logo mark */}
-        <div className="flex items-center gap-3 mb-3">
-          <motion.div
-            className="logo-mark w-14 h-14 flex items-center justify-center glow-teal"
-            whileHover={{ scale: 1.05 }}
-          >
-            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-              <path d="M14 3C8.477 3 4 7.477 4 13C4 16.5 5.8 19.6 8.5 21.5L7 25L11.5 23C12.3 23.3 13.1 23.5 14 23.5C19.523 23.5 24 19.023 24 13.5C24 7.977 19.523 3 14 3Z" fill="white" fillOpacity="0.9"/>
-              <circle cx="10" cy="14" r="1.5" fill="#0A0F1E"/>
-              <circle cx="14" cy="14" r="1.5" fill="#0A0F1E"/>
-              <circle cx="18" cy="14" r="1.5" fill="#0A0F1E"/>
-            </svg>
-          </motion.div>
-          <div>
-            <h1 className="font-display text-2xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
-              Addis <span className="shimmer-text">Psychology</span>
-            </h1>
-            <p className="text-xs font-medium tracking-widest uppercase" style={{ color: 'var(--text-muted)' }}>
-              Mental Health Platform
-            </p>
-          </div>
-        </div>
-      </motion.div>
+          {/* Central Hero Quote Experience */}
+          <main className="fullscreen-loading-center">
+            {/* Animated Rotating Geometric Emblem */}
+            <div className="fullscreen-loading-icon-wrap">
+              <motion.div
+                className="loading-aperture-large"
+                animate={{ rotate: 360 }}
+                transition={{ duration: 16, repeat: Infinity, ease: 'linear' }}
+              >
+                <div className="aperture-inner-ring" />
+                <div className="aperture-crosshair vertical" />
+                <div className="aperture-crosshair horizontal" />
+                <div className="aperture-center-core" />
+              </motion.div>
+            </div>
 
-      {/* Quote card */}
-      <motion.div
-        initial={{ opacity: 0, scale: 0.92 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.7, delay: 0.3 }}
-        className="max-w-lg text-center px-6 mb-14"
-      >
-        <div className="glass rounded-2xl p-8 relative overflow-hidden">
-          {/* Top accent line */}
-          <div className="absolute top-0 left-0 right-0 h-px"
-            style={{ background: 'linear-gradient(90deg, transparent, var(--teal), transparent)' }} />
-          
-          <p className="font-display text-xl font-semibold leading-relaxed mb-4" style={{ color: 'var(--text-primary)' }}>
-            &ldquo;{quote.text}&rdquo;
-          </p>
-          <p className="text-xs font-semibold tracking-widest uppercase" style={{ color: 'var(--text-accent)' }}>
-            — {quote.author}
-          </p>
-        </div>
-      </motion.div>
+            {/* Inspiring Psychological Quote */}
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2, duration: 0.5 }}
+              className="fullscreen-quote-container"
+            >
+              <span className="fullscreen-quote-badge">
+                REFLECTIVE MEDITATION / የዕለቱ ማስታወሻ
+              </span>
 
-      {/* Progress */}
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.5 }}
-        className="flex flex-col items-center gap-3 w-72"
-      >
-        <div className="progress-track w-full">
-          <div className="progress-fill" style={{ width: `${progress}%` }} />
-        </div>
-        <div className="flex items-center justify-between w-full">
-          <motion.p
-            className="text-xs font-medium tracking-wide"
-            style={{ color: 'var(--text-muted)' }}
-            animate={{ opacity: [0.5, 1, 0.5] }}
-            transition={{ duration: 2, repeat: Infinity }}
-          >
-            Initializing your session...
-          </motion.p>
-          <span className="text-xs font-bold tabular-nums" style={{ color: 'var(--teal)' }}>
-            {Math.round(progress)}%
-          </span>
-        </div>
-      </motion.div>
+              <blockquote className="fullscreen-quote-text-en">
+                &ldquo;{activeQuote.en}&rdquo;
+              </blockquote>
 
-      {/* Skip for returning clients */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 1.5 }}
-        className="absolute bottom-10 flex flex-col items-center gap-2"
-      >
-        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Already registered?</p>
-        <Link href="/therapists">
-          <button className="btn-ghost py-2 px-5 text-sm">
-            Skip to Therapist Directory →
-          </button>
-        </Link>
-      </motion.div>
-    </motion.div>
+              <p className="fullscreen-quote-text-am">{activeQuote.am}</p>
+
+              <cite className="fullscreen-quote-author">
+                — {activeQuote.author}
+              </cite>
+            </motion.div>
+          </main>
+
+          {/* Bottom Dock with Full-Bleed Progress Bar & Skip Option */}
+          <footer className="fullscreen-loading-footer">
+            <div className="fullscreen-loading-meta">
+              <span>PREPARING YOUR CONFIDENTIAL ENVIRONMENT</span>
+              <strong>{progress}%</strong>
+            </div>
+
+            <div className="fullscreen-progress-bar-track">
+              <motion.div
+                className="fullscreen-progress-bar-fill"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+
+            <div className="fullscreen-skip-row">
+              <small>Click anywhere or tap screen to proceed immediately · ጠቅ ያድርጉ ለመዝለል</small>
+            </div>
+          </footer>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

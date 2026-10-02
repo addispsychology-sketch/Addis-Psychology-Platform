@@ -4,14 +4,14 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { usePlatform } from '@/components/Platform';
 import { Page, DemoNote, Presence, Modal } from '@/components/Shell';
-import { bundles, discountedPrice } from '@/lib/commerce';
+import { bundles, discountedPrice, formatVoiceTime } from '@/lib/commerce';
 
 function Packages() {
   const { t, people, money, settings, balance, buy, ready } = usePlatform();
   const params = useSearchParams();
   const id = Number(params.get('therapist') || 1);
   const person = people.find(p => p.id === id);
-  const [selected, setSelected] = useState('starter');
+  const [selected, setSelected] = useState('text');
   const [review, setReview] = useState(false);
   const [complete, setComplete] = useState(false);
   const busy = useRef(false);
@@ -40,7 +40,7 @@ function Packages() {
         <div>
           <b>01</b>
           <h3>{t('Choose a package','ጥቅል ይምረጡ')}</h3>
-          <p>{t('One credit per sent text (up to 2,000 chars). One voice credit per recording (up to 60 secs).','1 ክሬዲት ለጽሑፍ · 1 ለድምፅ')}</p>
+          <p>{t('1.50 ETB per text (up to 2,000 characters). 7 ETB per voice minute, deducted by recorded seconds. No one-minute recording limit.','1.50 ብር ለጽሑፍ · 7 ብር ለድምፅ ደቂቃ። በተቀዳው ሰከንድ ይቀነሳል።')}</p>
         </div>
         <div>
           <b>02</b>
@@ -58,11 +58,11 @@ function Packages() {
       <div className="bundle-grid">
         {bundles.map((p, i) => (
           <button className="bundle-card" aria-pressed={selected === p.id} key={p.id} onClick={() => setSelected(p.id)}>
-            <span className="eyebrow">0{i+1} / {i===0?t('STARTER','መጀመሪያ'):i===1?t('REGULAR','መደበኛ'):t('EXTENDED','ሰፊ')}</span>
+            <span className="eyebrow">0{i+1} / {i===0?t('TEXT','ጽሑፍ'):i===1?t('VOICE','ድምፅ'):t('TEXT + VOICE','ጽሑፍ + ድምፅ')}</span>
             <strong>{money(discountedPrice(p.price, settings(id).discount))}</strong>
-            {settings(id).discount > 0 && <del style={{fontSize:'14px',color:'#888'}}>{money(p.price)}</del>}
+            {settings(id).discount > 0 && <del style={{fontSize:'14px',color:'var(--muted-text)'}}>{money(p.price)}</del>}
             <span>{p.texts} {t('text messages','የጽሑፍ መልዕክቶች')}</span>
-            <span>{p.voices} {t('voice messages','የድምፅ መልዕክቶች')}</span>
+            <span>{p.voiceSeconds / 60} {t('voice minutes','የድምፅ ደቂቃዎች')}</span>
             <small>{selected === p.id ? t('✓ SELECTED','✓ ተመርጧል') : t('SELECT','ምረጥ')}</small>
           </button>
         ))}
@@ -72,7 +72,7 @@ function Packages() {
       <div className="checkout-summary">
         <div>
           <h3>{t('Your current balance','አሁን ያለዎት ቀሪ')}</h3>
-          <p>{balance(id).texts} {t('texts','ጽሑፍ')} / {balance(id).voices} {t('voice notes','ድምፅ')}</p>
+          <p>{balance(id).texts} {t('texts','ጽሑፍ')} / {formatVoiceTime(balance(id).voiceSeconds)} {t('voice min','የድምፅ ደቂቃ')}</p>
           <Link href={`/chat?therapist=${id}`}>{t('Open conversation','ውይይት ክፈት')}</Link>
         </div>
         <button className="solid" disabled={!ready} onClick={() => { busy.current = false; setComplete(false); setReview(true); }}>
@@ -95,7 +95,7 @@ function Packages() {
               <p style={{fontWeight:600}}>{person.name}</p>
               <dl className="summary-list">
                 <div><dt>{t('Text messages','ጽሑፍ')}</dt><dd>{b.texts}</dd></div>
-                <div><dt>{t('Voice messages','ድምፅ')}</dt><dd>{b.voices}</dd></div>
+                <div><dt>{t('Voice minutes','የድምፅ ደቂቃዎች')}</dt><dd>{b.voiceSeconds / 60}</dd></div>
                 <div><dt>{t('Discount','ቅናሽ')}</dt><dd>{settings(id).discount}%</dd></div>
                 <div><dt>{t('Demo total','ጠቅላላ')}</dt><dd>{money(price)}</dd></div>
               </dl>

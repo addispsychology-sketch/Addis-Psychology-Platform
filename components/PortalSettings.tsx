@@ -13,7 +13,7 @@ export default function PortalSettings({ id, profile = false }: { id: number; pr
   const [notice, setNotice] = useState('');
   const person = people.find(p => p.id === id)!;
 
-  function submit() {
+  async function submit() {
     const chatStartH = Number(form.chatStart.split(':')[0]);
     const chatEndH = Number(form.chatEnd.split(':')[0]);
     if (
@@ -29,7 +29,7 @@ export default function PortalSettings({ id, profile = false }: { id: number; pr
       ));
       return;
     }
-    updateSettings(id, form);
+    if (!await updateSettings(id, form)) { setNotice('Could not save. Please try again.'); return; }
     setNotice(t(
       'Saved. Directory, booking calendar, chat hours, and checkouts now use these settings.',
       'ተቀምጧል። ዝርዝሩ፣ ሰሌዳው፣ የቻት ሰዓቶቹና ግዢዎቹ ተዘምነዋል።'
@@ -47,7 +47,7 @@ export default function PortalSettings({ id, profile = false }: { id: number; pr
               <h3>{person.name}</h3>
               <p>{person.title}</p>
               <PhotoUpload value={form.photo || ''} onChange={photo => setForm(f => ({ ...f, photo }))} />
-              <p>{t('Uploaded photos appear in the directory and profile modal after saving. Demo names and credentials are fixed sample data.','ፎቶዎቹ ከተቀመጡ በኋላ ይታያሉ።')}</p>
+              <p>{t('Uploaded photos appear in the directory and profile after saving. Contact the project owner to update reviewed credentials.','ፎቶዎቹ ከተቀመጡ በኋላ ይታያሉ።')}</p>
             </div>
           </div>
         </>
@@ -111,7 +111,7 @@ export default function PortalSettings({ id, profile = false }: { id: number; pr
           <div className="chat-hours-info">
             {t('Set the days and hours when clients can expect you to read and reply to messages. This is shown to clients before they start chatting.','ደንበኞች መልዕክቶቻቸው የሚነበቡበትንና ምላሽ የሚሰጥባቸውን ቀናትና ሰዓቶች ያስቀምጡ። ይህ ቻት ከመጀመሩ በፊት ለደንበኞቹ ይታያል።')}
           </div>
-          <p style={{fontSize:'13px',margin:'0 0 12px',color:'#444'}}>{t('Chat days (when you check & reply to messages)','የቻት ቀናት')}</p>
+          <p style={{fontSize:'13px',margin:'0 0 12px',color:'var(--muted-text)'}}>{t('Chat days (when you check & reply to messages)','የቻት ቀናት')}</p>
           <div className="day-toggles">
             {DAY_LABELS.map((d, i) => (
               <button type="button" key={`chat-${d}`} aria-pressed={form.chatDays.includes(i)}

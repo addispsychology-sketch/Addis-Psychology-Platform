@@ -1,0 +1,88 @@
+name: Check and deploy
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Explain initial setup status
+        if: github.event_name != 'pull_request' && vars.AUTO_DEPLOY != 'true'
+        run: |
+          echo '### Checks complete; hosting is not connected yet' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No cloud changes were attempted. Follow START_HERE.md with your assistant to connect the accounts once.' >> "$GITHUB_STEP_SUMMARY"
+
+  production:
+    needs: checks
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master' && vars.AUTO_DEPLOY == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+      R2_BUCKET_NAME: ${{ vars.R2_BUCKET_NAME }}
+      APP_URL: ${{ vars.APP_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Check required connections before changing any service
+        run: node scripts/configure-cloud.mjs --check
+      - run: npm ci
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Install deployment CLI
+        run: npm install --global vercel@latest
+      - name: Read the Vercel project configuration
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+      - name: Check that the app points at the intended database
+        run: node --env-file=.vercel/.env.production.local scripts/check-app-env.mjs
+      - name: Build the configured application before changing the database
+        run: vercel build --prod --token="$VERCEL_TOKEN"
+      - name: Link Supabase
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+      - name: Apply pending database migrations without resetting data
+        run: supabase db push --yes
+      - name: Configure authentication, private signaling, and voice storage
+        run: node scripts/configure-cloud.mjs
+      - name: Publish the tested build
+        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+      - name: Deployment complete
+        run: |
+          echo '### Production deployment completed' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Database migrations, service configuration, and the app have been deployed. Complete the two-account call/upload checks before inviting users.' >> "$GITHUB_STEP_SUMMARY"

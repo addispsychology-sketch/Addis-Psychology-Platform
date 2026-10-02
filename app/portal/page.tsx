@@ -1,15 +1,630 @@
 'use client';
-import { useState } from 'react';
-import Link from 'next/link';
+
+import { Suspense, useState, useRef, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
+import NextLink from 'next/link';
 import { usePlatform, statusLabel } from '@/components/Platform';
-import { Page, DemoNote, Presence, Modal } from '@/components/Shell';
+import { Header, Footer, DemoNote, Photo, Modal } from '@/components/Shell';
+import PrivateAudio from '@/components/PrivateAudio';
+import { createVoiceRecorder } from '@/lib/voice';
+import { requestCall } from '@/components/AudioCalls';
 import PortalCalendar from '@/components/PortalCalendar';
 import PortalSettings from '@/components/PortalSettings';
 import { dateKey } from '@/lib/calendar';
-export default function Portal(){const {t,people,state,messages,reply,money,date,clear}=usePlatform();const [id,setId]=useState(1);const [tab,setTab]=useState('overview');const [draft,setDraft]=useState('');const [reset,setReset]=useState(false);const person=people.find(p=>p.id===id)!;const appointments=state.appointments.filter(a=>a.therapist===id);const receipts=state.receipts.filter(r=>r.therapist===id);const thread=messages.filter(m=>m.therapist===id);const tabs=[['overview',t('Overview','አጠቃላይ')],['calendar',t('Calendar','የቀጠሮ ሰሌዳ')],['inbox',t('Inbox','መልዕክቶች')],['rates',t('Rates & availability','ዋጋና የሥራ ጊዜ')],['profile',t('Profile & photo','መገለጫና ፎቶ')]];
-return <Page wide><DemoNote/><div className="portal-intro"><div><span className="eyebrow">{t('THERAPIST WORKSPACE','የባለሙያ የሥራ ቦታ')}</span><h1>{t('Care, organized.','የተደራጀ እንክብካቤ።')}</h1><Presence id={id}/></div><label>{t('Preview a demo therapist','የማሳያ ባለሙያ ይምረጡ')}<select value={id} onChange={e=>{setId(Number(e.target.value));setDraft('');}}>{people.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label></div><p className="notice">{t('This is an open demonstration workspace, not a protected professional account. All changes are local to this browser.','ይህ ክፍት የማሳያ የሥራ ቦታ ነው፤ የተጠበቀ የሙያ መለያ አይደለም። ለውጦች በዚህ አሳሽ ብቻ ይቀመጣሉ።')} <Link href="/register">{state.registration?t('Review demo application','የማሳያ ማመልከቻ ይገምግሙ'):t('Register as a therapist','እንደ ባለሙያ ይመዝገቡ')}</Link></p><nav className="portal-tabs" aria-label={t('Portal sections','የፖርታል ክፍሎች')}>{tabs.map(([key,label])=><button key={key} aria-pressed={tab===key} onClick={()=>setTab(key)}>{label}</button>)}</nav>
-{tab==='overview'&&<><div className="metric-grid">{[[t('Today’s appointments','የዛሬ ቀጠሮዎች'),appointments.filter(a=>a.date===dateKey()&&a.status!=='cancelled').length],[t('Pending requests','በመጠባበቅ ላይ ያሉ ጥያቄዎች'),appointments.filter(a=>a.status==='pending').length],[t('Demo package sales','የማሳያ ጥቅል ሽያጮች'),money(receipts.reduce((n,r)=>n+r.amount,0))],[t('Messages in this visit','በዚህ ጉብኝት ያሉ መልዕክቶች'),thread.length]].map(([label,value])=><div key={label}><small>{label}</small><strong>{value}</strong></div>)}</div><div className="section-line"><h2>{t('Upcoming appointments','መጪ ቀጠሮዎች')}</h2><button onClick={()=>setTab('calendar')}>{t('Open calendar','የቀጠሮ ሰሌዳ ክፈት')}</button></div>{!appointments.some(a=>a.date>=dateKey()&&a.status!=='cancelled')?<div className="empty-state"><p>{t('Your calendar is clear. Create a sample booking from the client flow to see it here.','የቀጠሮ ሰሌዳዎ ባዶ ነው። እዚህ ለማየት ከደንበኛው ገጽ የሙከራ ቀጠሮ ይያዙ።')}</p><Link href={`/schedule/${id}`}>{t('Try the booking flow','የቀጠሮ ሂደቱን ይሞክሩ')}</Link></div>:appointments.filter(a=>a.date>=dateKey()&&a.status!=='cancelled').sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time)).map(a=><div className="receipt-row" key={a.id}><span>{a.client==='demo-client'?t('Demo client','የማሳያ ደንበኛ'):a.client}<small>{date(`${a.date}T12:00`)} · {a.time}</small></span><span>{statusLabel(a.status,t)}</span><strong>{money(a.price)}</strong></div>)}<h2>{t('Package payment history','የጥቅል ክፍያ ታሪክ')}</h2><p>{t('Simulated sales only. No real money, payouts, or invoices are processed.','የማሳያ ሽያጮች ብቻ። እውነተኛ ገንዘብ፣ ክፍያ ወይም ደረሰኝ አይፈጸምም።')}</p>{!receipts.length?<p>{t('No demo purchases yet.','እስካሁን የማሳያ ግዢ የለም።')}</p>:receipts.map(r=><div className="receipt-row" key={r.id}><span>{date(r.at)}<small>{t('Demo receipt','የማሳያ ደረሰኝ')} {r.id.slice(0,8)}</small></span><strong>{money(r.amount)}</strong></div>)}</>}
-{tab==='calendar'&&<PortalCalendar key={id} id={id}/>}{tab==='rates'&&<PortalSettings key={`rates-${id}`} id={id}/>}{tab==='profile'&&<PortalSettings key={`profile-${id}`} id={id} profile/>}
-{tab==='inbox'&&<section className="portal-inbox"><h2>{t('Client conversation','የደንበኛ ውይይት')}</h2><p>{t('This demo has one local client conversation per therapist. Replies appear in the client chat during this visit; nothing is sent externally.','በዚህ ማሳያ ለእያንዳንዱ ባለሙያ አንድ የደንበኛ ውይይት አለ። መልሶች በዚህ ጉብኝት በደንበኛው ውይይት ውስጥ ይታያሉ፤ ወደ ውጭ አይላኩም።')}</p><div className="portal-message-list">{!thread.length?<p>{t('No messages yet.','እስካሁን መልዕክት የለም።')}</p>:thread.map(m=><article className={`message ${m.from}`} key={m.id}><small>{m.from==='client'?t('Demo client','የማሳያ ደንበኛ'):person.name}</small>{m.text&&<p>{m.text}</p>}{m.audio&&<audio controls src={m.audio} aria-label={t('Voice message','የድምፅ መልዕክት')}/>}</article>)}</div><form onSubmit={e=>{e.preventDefault();reply(id,draft);setDraft('');}}><label>{t('Reply as therapist','እንደ ባለሙያ መልስ ይጻፉ')}<textarea value={draft} maxLength={2000} onChange={e=>setDraft(e.target.value)} rows={3}/></label><button className="solid" disabled={!draft.trim()||!thread.some(m=>m.from==='client')}>{t('Send demo reply','የማሳያ መልስ ላክ')}</button><Link href={`/chat?therapist=${id}`}>{t('View client chat','የደንበኛውን ውይይት ይመልከቱ')}</Link></form></section>}
-<div className="portal-footer"><small>{t('Demo data is stored in this browser. Messages and audio are kept only during this visit.','የማሳያ መረጃ በዚህ አሳሽ ይቀመጣል። መልዕክቶችና ድምፆች በዚህ ጉብኝት ብቻ ይቆያሉ።')}</small><button onClick={()=>setReset(true)}>{t('Reset demo data','የማሳያ መረጃ አጥፋ')}</button></div>{reset&&<Modal title={t('Reset this browser’s demo?','የዚህን አሳሽ ማሳያ ዳግም ያስጀምሩ?')} close={()=>setReset(false)}><p>{t('This removes saved demo bookings, package credits, receipts, application details, photos, and messages from this browser.','ይህ የተቀመጡ የማሳያ ቀጠሮዎችን፣ ክሬዲቶችን፣ ደረሰኞችን፣ ማመልከቻዎችን፣ ፎቶዎችንና መልዕክቶችን ከዚህ አሳሽ ያስወግዳል።')}</p><button className="solid" onClick={()=>{clear();setReset(false);setTab('overview');}}>{t('Reset demo','ማሳያውን ዳግም ጀምር')}</button></Modal>}</Page>;
+import { motion } from 'framer-motion';
+
+const CLINICAL_TEMPLATES = [
+  {
+    label: 'Warm Welcome',
+    text: 'Hello. I have received your message and welcome you to our space. How are you holding up at this moment?',
+  },
+  {
+    label: 'Grounding Technique',
+    text: 'When overwhelm surfaces, remember the 4-7-8 breathing practice: inhale for 4 seconds, hold for 7, and exhale slowly for 8.',
+  },
+  {
+    label: 'Session Preparation',
+    text: 'I look forward to our upcoming appointment. Take a moment before we meet to write down any specific topics on your mind.',
+  },
+  {
+    label: 'Check-in Encouragement',
+    text: 'Thank you for reaching out so candidly. Acknowledging these feelings is a meaningful act of self-care.',
+  },
+];
+
+function TherapistPortalInner() {
+  const { t, people, loadMoreMessages, userId, ownTherapistId, conversations, activeConversation, setActiveConversation, state, messages, reply, money, date, clear, settings, updateSettings, updateAppointment } =
+    usePlatform();
+  const searchParams = useSearchParams();
+  const initialTherapist = Number(searchParams.get('therapist') || (people[0] ? people[0].id : 1));
+
+  const id = ownTherapistId || initialTherapist;
+  const [tab, setTab] = useState<'overview' | 'chat' | 'calendar' | 'rates' | 'profile'>('overview');
+  const [showChatInfo, setShowChatInfo] = useState(false);
+  const [replyText, setReplyText] = useState('');
+  const [reset, setReset] = useState(false);
+
+  // Voice recording state for therapist
+  const [recording, setRecording] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const [draftAudio, setDraftAudio] = useState('');
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const alive = useRef(true);
+  const recordingPending = useRef(false);
+  const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
+  const chatBottomRef = useRef<HTMLDivElement>(null);
+
+  const person = people.find(p => p.id === ownTherapistId);
+  const personSettings = settings(id);
+  const appointments = state.appointments.filter(a => a.therapist === id);
+  const receipts = state.receipts.filter(r => r.therapist === id);
+  const thread = messages.filter(m => m.therapist === id && m.conversationId === activeConversation);
+  const pendingAppointments = appointments.filter(a => a.status === 'pending');
+  const todayBookings = appointments.filter(a => a.date === dateKey() && a.status !== 'cancelled');
+
+  useEffect(() => {
+    if (tab === 'chat') {
+      chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [tab, thread.length]);
+
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (recorderRef.current && recorderRef.current.state === 'recording') {
+        recorderRef.current.stop();
+      }
+      streamRef.current?.getTracks().forEach(t => t.stop());
+    };
+  }, []);
+
+  async function startRecording() {
+    if (!activeConversation || recordingPending.current || sendingRef.current || recorderRef.current?.state === 'recording') return;
+    recordingPending.current = true;
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordingPending.current = false;
+      if (!alive.current) { mediaStream.getTracks().forEach(t => t.stop()); return; }
+      streamRef.current = mediaStream;
+      const rec = createVoiceRecorder(mediaStream);
+      recorderRef.current = rec;
+      const chunks: BlobPart[] = [];
+      rec.ondataavailable = e => {
+        if (e.data.size) chunks.push(e.data);
+      };
+      rec.onstop = () => {
+        if (timerRef.current) clearInterval(timerRef.current);
+        mediaStream.getTracks().forEach(t => t.stop());
+        if (!alive.current) return;
+        if (chunks.length) {
+          setDraftAudio(URL.createObjectURL(new Blob(chunks, { type: rec.mimeType })));
+        }
+        setRecording(false);
+      };
+      rec.start();
+      setRecording(true);
+      setRecordSeconds(0);
+      let sec = 0;
+      timerRef.current = setInterval(() => {
+        sec++;
+        setRecordSeconds(sec);
+
+      }, 1000);
+    } catch {
+      recordingPending.current = false;
+      streamRef.current?.getTracks().forEach(t => t.stop());
+      alert(t('Could not access microphone.', 'ማይክሮፎን ማግኘት አልተቻለም።'));
+    }
+  }
+
+  useEffect(() => { return () => { if (draftAudio) URL.revokeObjectURL(draftAudio); }; }, [draftAudio]);
+
+  async function handleSendVoice() {
+    if (!draftAudio || sendingRef.current) return;
+    sendingRef.current = true; setSending(true);
+    if (await reply(id, undefined, draftAudio)) setDraftAudio('');
+    sendingRef.current = false; setSending(false);
+  }
+
+  async function handleSendText() {
+    if (!replyText.trim() || sendingRef.current) return;
+    sendingRef.current = true; setSending(true);
+    if (await reply(id, replyText.trim())) setReplyText('');
+    sendingRef.current = false; setSending(false);
+  }
+
+  function togglePresence(nextStatus: 'available' | 'busy' | 'offline') {
+    updateSettings(id, { ...personSettings, presence: nextStatus });
+  }
+
+  const tabs: [typeof tab, string, string, number?][] = [
+    ['overview', '📊', t('Overview', 'አጠቃላይ')],
+    ['chat', '💬', t('Live Chat Desk', 'የቀጥታ ቻት'), thread.length],
+    ['calendar', '📅', t('Calendar & Bookings', 'የቀጠሮ ሰሌዳ'), pendingAppointments.length],
+    ['rates', '⚙️', t('Rates & Schedule', 'ዋጋና የሥራ ሰዓት')],
+    ['profile', '👤', t('Profile & Bio', 'መገለጫና ፎቶ')],
+  ];
+
+  if (!userId || !person) return <><Header /><main className="platform-main"><h1>Your practice</h1><p>Sign in and register your practice to access the portal.</p><NextLink href="/account">Account</NextLink>{" · "}<NextLink href="/register">Register practice</NextLink></main></>;
+
+  return (
+    <>
+      <Header />
+      <main className={`platform-main wide therapist-portal ${tab === 'chat' ? 'portal-chat-open' : ''}`} style={{ paddingBottom: '80px' }}>
+        <DemoNote />
+
+        {/* ── PRACTITIONER HERO BAR ── */}
+        <section className="portal-hero-card">
+          <div className="portal-hero-profile">
+            <Photo id={id} name={person.name} src={personSettings.photo} />
+            <div className="portal-hero-meta">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span className="eyebrow">{person.title}</span>
+                {person.badge && <span className="admin-badge green">{person.badge}</span>}
+              </div>
+              <h1 style={{ fontSize: 'clamp(24px, 3.5vw, 36px)', margin: '4px 0 6px' }}>
+                {person.name}
+              </h1>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <div className="portal-presence-toggle">
+                  <span style={{ fontSize: '11px', textTransform: 'uppercase', fontWeight: 700 }}>
+                    {t('Status:', 'ሁኔታ:')}
+                  </span>
+                  {(['available', 'busy', 'offline'] as const).map(st => (
+                    <button
+                      key={st}
+                      type="button"
+                      className={`presence-btn ${personSettings.presence === st ? 'active ' + st : ''}`}
+                      onClick={() => togglePresence(st)}
+                    >
+                      <span className={`chat-avail-dot ${st === 'available' ? 'live' : ''}`} />
+                      {st === 'available' ? t('Available', 'ዝግጁ') : st === 'busy' ? t('In Session', 'በቀጠሮ ላይ') : t('Offline', 'ከመስመር ውጭ')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Practitioner Switcher & Quick Register Link */}
+          <div className="portal-hero-controls">
+            <label style={{ margin: 0 }}>
+              <span className="eyebrow" style={{ color: 'var(--ink)' }}>
+                {t('CLIENT CONVERSATION', 'የደንበኛ ውይይት')}
+              </span>
+              <select
+                disabled={recording || sending || Boolean(draftAudio)}
+                value={activeConversation}
+                onChange={e => {
+                  setActiveConversation(e.target.value);
+                  setReplyText('');
+                  setDraftAudio('');
+                }}
+                style={{ marginTop: '6px' }}
+              >
+                <option value="">Select a client conversation</option>
+                {conversations.filter(c => c.therapist_id === id).map(c => <option key={c.id} value={c.id}>Client {c.client_id.slice(0, 8)}</option>)}
+              </select>
+            </label>
+
+            <NextLink href="/register" className="portal-register-chip">
+              <span>+ {t('Register New Practitioner', 'አዲስ ባለሙያ ይመዝገቡ')}</span>
+            </NextLink>
+          </div>
+        </section>
+
+        {/* ── PORTAL NAVIGATION TABS ── */}
+        <nav className="portal-tabs-upgraded" aria-label={t('Portal navigation', 'የፖርታል ማውጫ')}>
+          {tabs.map(([key, icon, label, badgeCount]) => (
+            <button
+              key={key}
+              aria-pressed={tab === key}
+              onClick={() => setTab(key)}
+              className="portal-tab-btn"
+            >
+              <span>{icon}</span>
+              <strong>{label}</strong>
+              {badgeCount !== undefined && badgeCount > 0 && (
+                <span className="portal-tab-badge">{badgeCount}</span>
+              )}
+            </button>
+          ))}
+        </nav>
+
+        {/* ══ TAB 1: OVERVIEW ════════════════════════════════════ */}
+        {tab === 'overview' && (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+            <div className="admin-metrics">
+              <div className="admin-metric-card">
+                <small>{t("Today's Appointments", 'የዛሬ ቀጠሮዎች')}</small>
+                <strong>{todayBookings.length}</strong>
+                <span className="trend">
+                  {todayBookings.length > 0 ? t('Active schedule', 'ቀጠሮ አለዎት') : t('Clear today', 'ዛሬ ክፍት ነው')}
+                </span>
+              </div>
+              <div className="admin-metric-card">
+                <small>{t('Pending Inquiries / Bookings', 'በመጠባበቅ ላይ ያሉ')}</small>
+                <strong style={{ color: pendingAppointments.length > 0 ? 'var(--danger)' : 'inherit' }}>
+                  {pendingAppointments.length}
+                </strong>
+                <span className="trend">
+                  {pendingAppointments.length > 0 ? '⚠ ' + t('Requires confirmation', 'ማረጋገጫ ይፈልጋል') : '✓ ' + t('All confirmed', 'ሁሉም የተረጋገጡ')}
+                </span>
+              </div>
+              <div className="admin-metric-card">
+                <small>{t('Live Chat Messages', 'የቻት መልዕክቶች')}</small>
+                <strong>{thread.length}</strong>
+                <span className="trend">
+                  <NextLink href="#" onClick={e => { e.preventDefault(); setTab('chat'); }} style={{ fontSize: '11px', textDecoration: 'underline' }}>
+                    {t('Open desk →', 'ቻት ክፈት →')}
+                  </NextLink>
+                </span>
+              </div>
+              <div className="admin-metric-card">
+                <small>{t('Simulated Practice Revenue', 'ጠቅላላ ገቢ (ማሳያ)')}</small>
+                <strong>{money(receipts.reduce((n, r) => n + r.amount, 0))}</strong>
+                <span className="trend">{receipts.length} {t('package orders', 'የጥቅል ሽያጮች')}</span>
+              </div>
+            </div>
+
+            {/* Quick Actions & Pending Requests */}
+            {pendingAppointments.length > 0 && (
+              <div className="portal-alert-card">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+                  <div>
+                    <h3 style={{ fontSize: '18px', margin: '0 0 4px' }}>
+                      ⚡ {t('Action Required: Pending Appointments', 'ትኩረት: ማረጋገጫ የሚጠብቁ ቀጠሮዎች')}
+                    </h3>
+                    <p style={{ margin: 0, fontSize: '13px' }}>
+                      {t('You have clients waiting for booking confirmation.', 'ቀጠሮ ያቀረቡ ደንበኞች አሉ።')}
+                    </p>
+                  </div>
+                  <button className="solid compact" onClick={() => setTab('calendar')}>
+                    {t('Manage in Calendar', 'በቀጠሮ ሰሌዳው ይመልከቱ')} →
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="portal-overview-grid">
+              {/* Upcoming Appointments */}
+              <div className="admin-chart-box">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <h3 style={{ fontSize: '18px' }}>{t('Upcoming Appointments', 'መጪ ቀጠሮዎች')}</h3>
+                  <button onClick={() => setTab('calendar')} style={{ fontSize: '11px', padding: '6px 10px' }}>
+                    {t('Full Calendar', 'ሙሉ ሰሌዳ')}
+                  </button>
+                </div>
+
+                {!appointments.some(a => a.date >= dateKey() && a.status !== 'cancelled') ? (
+                  <div className="empty-state">
+                    <p>{t('No bookings on schedule yet. Try creating a simulated booking as a client.', 'ቀጠሮ የለም። እንደ ደንበኛ የሙከራ ቀጠሮ ይያዙ።')}</p>
+                    <NextLink className="solid compact" href={`/schedule/${id}`}>
+                      {t('Simulate Client Booking', 'ቀጠሮ ይሞክሩ')}
+                    </NextLink>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {appointments
+                      .filter(a => a.date >= dateKey() && a.status !== 'cancelled')
+                      .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))
+                      .map(a => (
+                        <div key={a.id} className="portal-appointment-row">
+                          <div>
+                            <strong>{a.client === 'demo-client' ? t('Client', 'ደንበኛ') : a.client}</strong>
+                            <small style={{ display: 'block', color: 'var(--muted-text)', marginTop: '2px' }}>
+                              📅 {date(`${a.date}T12:00`)} · ⏰ {a.time} ({a.medium === 'online' ? '💻 Online' : '🏥 In-person'})
+                            </small>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span className={`admin-badge ${a.status === 'confirmed' ? 'green' : 'amber'}`}>
+                              {statusLabel(a.status, t)}
+                            </span>
+                            {a.status === 'pending' && (
+                              <button
+                                style={{ fontSize: '10px', padding: '4px 8px' }}
+                                onClick={() => updateAppointment(a.id, { status: 'confirmed' })}
+                              >
+                                {t('Confirm', 'አረጋግጥ')}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Chat & Package Activity */}
+              <div className="admin-chart-box">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <h3 style={{ fontSize: '18px' }}>{t('Client Inquiries & Chat', 'የደንበኛ ውይይቶች')}</h3>
+                  <button onClick={() => setTab('chat')} className="solid compact">
+                    💬 {t('Open Desk', 'ቻት ክፈት')}
+                  </button>
+                </div>
+
+                {!thread.length ? (
+                  <p className="muted">{t('No messages in this visit yet.', 'መልዕክት የለም።')}</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {thread.slice(-3).map(m => (
+                      <div key={m.id} style={{ border: '1px solid var(--ink)', padding: '10px', background: m.from === 'therapist' ? 'var(--surface-soft)' : 'var(--paper)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', fontFamily: 'Space Mono, monospace' }}>
+                          <strong>{m.from === 'client' ? t('Client Inquiry', 'የደንበኛ ጥያቄ') : person.name}</strong>
+                          <span>{new Date(m.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                        <p style={{ margin: '6px 0 0', fontSize: '13px' }}>
+                          {m.text || t('🎙️ Voice recording', '🎙️ የድምፅ መልዕክት')}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ marginTop: '20px', borderTop: '2px solid var(--ink)', paddingTop: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 700 }}>{t('Practice Rates', 'የቀጠሮ ዋጋዎች')}</span>
+                    <NextLink href="#" onClick={e => { e.preventDefault(); setTab('rates'); }} style={{ fontSize: '11px' }}>
+                      {t('Adjust →', 'አስተካክል →')}
+                    </NextLink>
+                  </div>
+                  <div style={{ display: 'flex', gap: '16px', marginTop: '6px', fontSize: '12px' }}>
+                    <span>💻 Online: <strong>{money(personSettings.online)}</strong></span>
+                    <span>🏥 In-Person: <strong>{money(personSettings.inperson)}</strong></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* ══ TAB 2: DEDICATED THERAPIST LIVE CHAT DESK ══════════ */}
+        {tab === 'chat' && (
+          <motion.section
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2 }}
+            className={`therapist-chat-workspace ${showChatInfo ? 'show-chat-info' : ''}`}
+          >
+            {/* Header / Sub-bar */}
+            <div className="therapist-chat-header">
+              <button type="button" onClick={() => setTab('overview')} aria-label={t('Back to portal', 'ወደ ፖርታል ተመለስ')}>←</button>
+              <Photo id={id} name={person.name} />
+              <div className="therapist-desk-title">
+                <span className="eyebrow">{t('CONFIDENTIAL CLINICAL DESK', 'የባለሙያ ሚስጥራዊ ቻት')}</span>
+                <h2>{person.name}</h2>
+              </div>
+              <div className="therapist-desk-actions">
+                <button disabled={!activeConversation} onClick={() => requestCall(activeConversation)}>📞 Audio call</button>
+                <button className="chat-info-toggle" aria-expanded={showChatInfo} onClick={() => setShowChatInfo(v => !v)}>{t('Client & tools', 'ደንበኛ እና መሳሪያዎች')}</button>
+                <NextLink href={`/chat?therapist=${id}`} className="solid compact client-preview-link" style={{ textDecoration: 'none' }}>
+                  👀 {t('Preview Client View', 'የደንበኛውን ገጽ እይ')} ↗
+                </NextLink>
+              </div>
+            </div>
+
+            {/* Split workspace: Client metadata on left, Chat stream on right */}
+            <div className="therapist-chat-split">
+              {/* Left Column: Client Case Info & Quick Clinical Actions */}
+              <aside className="therapist-chat-client-info">
+                <div className="client-info-card">
+                  <div className="client-avatar-badge">
+                    <span>👤</span>
+                  </div>
+                  <h3 style={{ fontSize: '16px', margin: '8px 0 2px' }}>
+                    {t('Active Client', 'ተጠቃሚ')}
+                  </h3>
+                  <small style={{ color: 'var(--muted-text)', fontFamily: 'Space Mono, monospace' }}>
+                    {activeConversation ? `Conversation ${activeConversation.slice(0, 8)}` : 'No client selected'}
+                  </small>
+
+                  <div style={{ margin: '14px 0', borderTop: '2px solid var(--ink)', paddingTop: '10px', fontSize: '12px' }}>
+                    <p style={{ margin: '4px 0' }}>
+                      💬 <strong>{thread.filter(m => m.from === 'client').length}</strong> {t('incoming notes', 'የተላኩ ማስታወሻዎች')}
+                    </p>
+                    <p style={{ margin: '4px 0' }}>
+                      🔒 {t('Private participant-only conversation', 'በመሳሪያው ብቻ የሚቀመጥ ሚስጥር')}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Quick Clinical Response Presets */}
+                <div className="clinical-presets-box">
+                  <span className="eyebrow">{t('CLINICAL PRESET RESPONSES', 'ዝግጁ የሕክምና ምላሾች')}</span>
+                  <div className="presets-list">
+                    {CLINICAL_TEMPLATES.map((tmpl, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        className="preset-btn"
+                        onClick={() => setReplyText(tmpl.text)}
+                      >
+                        <strong>+ {tmpl.label}</strong>
+                        <small>{tmpl.text.slice(0, 60)}…</small>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </aside>
+
+              {/* Right Column: Live Conversation Thread & Practitioner Composer */}
+              <div className="therapist-chat-main">
+                <div className="therapist-message-stream">
+                  {!thread.length ? (
+                    <div className="empty-chat-desk">
+                      <span style={{ fontSize: '32px' }}>💬</span>
+                      <h3>{t('No messages in this thread yet.', 'እስካሁን ምንም መልዕክት የለም።')}</h3>
+                      <p>
+                        {t(
+                          'Clients will send text or voice check-ins here. You can send a welcome note to initiate communication.',
+                          'ደንበኞች መልዕክት ሲልኩ እዚህ ይደርሳል። ሰላምታ ለመላክ ከዚህ በታች መጻፍ ይችላሉ።'
+                        )}
+                      </p>
+                    </div>
+                  ) : (
+                    thread.map(m => {
+                      const isMe = m.from === 'therapist';
+                      return (
+                        <motion.article
+                          key={m.id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className={`therapist-message-bubble ${isMe ? 'from-therapist' : 'from-client'}`}
+                        >
+                          <div className="msg-header">
+                            <strong>{isMe ? person.name : t('Client', 'ደንበኛ')}</strong>
+                            <time>
+                              {new Date(m.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </time>
+                          </div>
+                          {m.text && <p className="msg-content">{m.text}</p>}
+                          {m.audio && (
+                            <div className="msg-audio-wrap">
+                              <PrivateAudio src={m.audio} />
+                            </div>
+                          )}
+                        </motion.article>
+                      );
+                    })
+                  )}
+                  <button type="button" onClick={loadMoreMessages}>Load earlier messages</button>
+                  <div ref={chatBottomRef} />
+                </div>
+
+                {/* Practitioner Composer */}
+                <div className="therapist-composer-dock">
+                  {recording ? (
+                    <div className="recording-live-strip">
+                      <span className="recording-pulse" />
+                      <strong>
+                        {t('Recording Clinical Voice Note', 'የድምፅ ማስታወሻ በመቅዳት ላይ')}: {Math.floor(recordSeconds / 60)}:{String(recordSeconds % 60).padStart(2, '0')}
+                      </strong>
+                      <button onClick={() => recorderRef.current?.stop()} className="solid compact">
+                        {t('Done Recording', 'ጨርስ')}
+                      </button>
+                    </div>
+                  ) : draftAudio ? (
+                    <div className="audio-preview-strip">
+                      <audio controls src={draftAudio} style={{ flex: 1 }} />
+                      <button type="button" onClick={() => setDraftAudio('')}>
+                        {t('Discard', 'ሰርዝ')}
+                      </button>
+                      <button type="button" className="solid" onClick={handleSendVoice}>
+                        🎙️ {t('Send Voice Response', 'የድምፅ ምላሽ ላክ')}
+                      </button>
+                    </div>
+                  ) : (
+                    <form
+                      onSubmit={e => {
+                        e.preventDefault();
+                        handleSendText();
+                      }}
+                      className="therapist-input-form"
+                    >
+                      <textarea
+                        rows={2}
+                        aria-label={t('Reply to client', 'ለደንበኛ ምላሽ')}
+                        value={replyText}
+                        onChange={e => setReplyText(e.target.value)}
+                        placeholder={t('Type a clinical response or guidance… (Press Enter to send)', 'የሕክምና ምላሽ ይጻፉ… (ለመላክ Enter ይጫኑ)')}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSendText();
+                          }
+                        }}
+                      />
+                      <div className="therapist-input-actions">
+                        <button
+                          type="button"
+                          onClick={startRecording}
+                          title={t('Record voice note', 'የድምፅ መልዕክት ቅረፅ')}
+                          style={{ fontSize: '18px', padding: '0 14px' }}
+                        >
+                          🎙️
+                        </button>
+                        <button type="submit" className="solid" disabled={sending || !activeConversation || !replyText.trim()}>
+                          {t('Send Reply', 'ምላሽ ላክ')} →
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
+              </div>
+            </div>
+          </motion.section>
+        )}
+
+        {/* ══ TAB 3: CALENDAR & APPOINTMENTS ══════════════════════ */}
+        {tab === 'calendar' && (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+            <PortalCalendar key={id} id={id} />
+          </motion.div>
+        )}
+
+        {/* ══ TAB 4: RATES & WORKING HOURS ════════════════════════ */}
+        {tab === 'rates' && (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+            <PortalSettings key={`rates-${id}`} id={id} />
+          </motion.div>
+        )}
+
+        {/* ══ TAB 5: PUBLIC PROFILE & PHOTO ═══════════════════════ */}
+        {tab === 'profile' && (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+            <PortalSettings key={`profile-${id}`} id={id} profile />
+          </motion.div>
+        )}
+
+        {/* ── FOOTER ACTIONS & RESET MODAL ── */}
+        <div className="portal-footer" style={{ marginTop: '40px' }}>
+          <small>
+            {t(
+              'Messages are stored in Supabase. Voice notes are stored privately in Cloudflare R2.',
+              'የማሳያ መረጃ በዚህ አሳሽ ይቀመጣል።'
+            )}
+          </small>
+          <button onClick={() => setReset(true)} style={{ fontSize: '11px' }}>
+            {t('Reset local preferences', 'የማሳያ መረጃ አጥፋ')}
+          </button>
+        </div>
+
+        {reset && (
+          <Modal title={t('Reset local preferences?', 'የዚህን አሳሽ ማሳያ ዳግም ያስጀምሩ?')} close={() => setReset(false)}>
+            <p>
+              {t(
+                'This resets local preferences. It does not delete your cloud messages or practice.',
+                'ይህ የተቀመጡ የማሳያ ቀጠሮዎችን፣ የተመዘገቡ ባለሙያዎችንና መልዕክቶችን ከዚህ አሳሽ ያስወግዳል።'
+              )}
+            </p>
+            <button
+              className="solid"
+              onClick={() => {
+                clear();
+                setReset(false);
+                setTab('overview');
+              }}
+            >
+              {t('Reset preferences', 'ማሳያውን ዳግም ጀምር')}
+            </button>
+          </Modal>
+        )}
+      </main>
+      <Footer />
+    </>
+  );
+}
+
+export default function PortalPage() {
+  return (
+    <Suspense>
+      <TherapistPortalInner />
+    </Suspense>
+  );
 }
