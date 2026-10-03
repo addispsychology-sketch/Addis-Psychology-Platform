@@ -4586,37 +4586,216 @@ body .platform-nav a.account-nav-link, body .mobile-header-actions a.account-nav
 ═══════════════════════════════════════════════════════════════════ */
 
 /* ── Chat: No Therapist Selected Hero ── */
-.chat-no-therapist-hero {
-  max-width: 640px;
-  margin: 60px auto;
-  text-align: center;
-  padding: clamp(24px, 5vw, 48px);
-}
-.chat-no-therapist-icon {
-  font-size: 56px;
-  margin-bottom: 16px;
-  line-height: 1;
-}
-.chat-no-therapist-hero h1 {
-  font-size: clamp(36px, 5vw, 54px);
-  margin: 8px 0 0;
-}
-.chat-no-therapist-features {
+.chat-no-therapist-container {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
   justify-content: center;
-  margin-top: 36px;
+  align-items: center;
+  min-height: calc(100vh - 160px);
+  padding: 32px 16px;
 }
-.chat-feature-pill {
-  padding: 10px 18px;
+
+.chat-no-therapist-card {
+  width: 100%;
+  max-width: 520px;
+  background: var(--paper);
   border: 2px solid var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+@media (max-width: 600px) {
+  .chat-no-therapist-container {
+    padding: 16px 12px;
+    min-height: auto;
+    margin: 12px 0 32px;
+  }
+  .chat-no-therapist-card {
+    padding: 20px 16px;
+    gap: 16px;
+    box-shadow: 3px 3px 0 var(--ink);
+  }
+}
+
+.chat-no-therapist-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.chat-no-therapist-badge-icon {
+  width: 44px;
+  height: 44px;
+  background: var(--ink);
+  color: var(--paper);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+
+.chat-no-therapist-title-area {
+  flex: 1;
+}
+
+.chat-no-therapist-eyebrow {
+  display: block;
+  font-family: 'Space Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--muted-text);
+  margin-bottom: 4px;
+}
+
+.chat-no-therapist-card h1 {
+  font-size: clamp(20px, 4vw, 26px);
+  font-weight: 800;
+  line-height: 1.2;
+  margin: 0 0 6px;
+  letter-spacing: -0.5px;
+}
+
+.chat-no-therapist-card .chat-desc {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--muted-text);
+  margin: 0;
+}
+
+/* Balance widget */
+.chat-balance-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--surface-soft);
+  border: 1.5px solid var(--border, #dedfd6);
+  border-radius: 4px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.chat-balance-metrics {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: 'Space Mono', monospace;
+  font-size: 12px;
+}
+
+.chat-balance-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-balance-link {
   font-family: 'Space Mono', monospace;
   font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  font-weight: 700;
+  text-decoration: underline;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+/* Action buttons */
+.chat-actions-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 440px) {
+  .chat-actions-group {
+    grid-template-columns: 1fr;
+  }
+}
+
+.chat-actions-group .btn-browse {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 14px;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 700;
+  font-size: 13px;
+  text-decoration: none;
+  border: 2px solid var(--ink);
+  text-align: center;
+  transition: opacity 0.15s ease;
+}
+
+.chat-actions-group .btn-browse:hover {
+  opacity: 0.9;
+}
+
+.chat-actions-group .btn-package {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 14px;
   background: var(--paper);
   color: var(--ink);
+  font-weight: 700;
+  font-size: 13px;
+  text-decoration: none;
+  border: 2px solid var(--ink);
+  text-align: center;
+  transition: background 0.15s ease;
+}
+
+.chat-actions-group .btn-package:hover {
+  background: var(--surface-soft);
+}
+
+/* Features 2x2 grid */
+.chat-features-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+@media (max-width: 440px) {
+  .chat-features-grid {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+}
+
+.chat-feature-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border, #e5e5dc);
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  color: var(--ink);
+  border-radius: 2px;
+}
+
+.chat-feature-chip .chip-icon {
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+
+/* Footer note */
+.chat-footer-note {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted-text);
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border, #e5e5dc);
 }
 
 /* ── Telegram Welcome Banner ── */

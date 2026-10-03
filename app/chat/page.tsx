@@ -8,7 +8,7 @@ import PrivateAudio from '@/components/PrivateAudio';
 import { createVoiceRecorder } from '@/lib/voice';
 import { requestCall } from '@/components/AudioCalls';
 import { therapistAvailability } from '@/lib/presence';
-import { Mic, Send } from 'lucide-react';
+import { Mic, Send, MessageSquare, Shield, Calendar, CreditCard } from 'lucide-react';
 import { Photo, Modal, Page } from '@/components/Shell';
 import { bundles, discountedPrice, formatVoiceTime } from '@/lib/commerce';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -264,49 +264,83 @@ function TrueFullscreenChat() {
     const userCredits = balance(0);
     return (
       <main className="platform-main">
-        <div className="chat-no-therapist-hero">
-          <div className="chat-no-therapist-icon">💬</div>
-          <span className="eyebrow">{t('CONFIDENTIAL SANCTUARY / ADDIS PSYCHOLOGY', 'ሚስጥራዊ መጠጊያ / አዲስ ሳይኮሎጂ')}</span>
-          <h1>{t('Find your therapist.', 'ባለሙያዎን ይምረጡ።')}</h1>
-          <p className="lede" style={{ maxWidth: '540px', margin: '12px auto 20px' }}>
-            {t(
-              'Choose an approved practitioner from the directory to start private text and voice messaging. You can also purchase your package in advance.',
-              'የግል ውይይት ለመጀመር ከተፈቀደላቸው ባለሙያዎች ዝርዝር ይምረጡ። ጥቅሎችን አስቀድመው መግዛትም ይችላሉ።'
-            )}
-          </p>
+        <div className="chat-no-therapist-container">
+          <div className="chat-no-therapist-card">
+            {/* Header: compact icon badge + title area */}
+            <div className="chat-no-therapist-header">
+              <div className="chat-no-therapist-badge-icon">
+                <MessageSquare size={20} />
+              </div>
+              <div className="chat-no-therapist-title-area">
+                <span className="chat-no-therapist-eyebrow">
+                  {t('CONFIDENTIAL SANCTUARY · ADDIS PSYCHOLOGY', 'ሚስጥራዊ መጠጊያ · አዲስ ሳይኮሎጂ')}
+                </span>
+                <h1>{t('Find your therapist.', 'ባለሙያዎን ይምረጡ።')}</h1>
+                <p className="chat-desc">
+                  {t(
+                    'Choose an approved practitioner from the directory to start private messaging, or purchase your package in advance.',
+                    'የግል ውይይት ለመጀመር ከተፈቀደላቸው ባለሙያዎች ዝርዝር ይምረጡ ወይም አስቀድመው ጥቅል ይግዙ።'
+                  )}
+                </p>
+              </div>
+            </div>
 
-          {/* Balance badge */}
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '14px', padding: '12px 22px', border: '2px solid var(--ink)', background: 'var(--surface-soft)', marginBottom: '24px', fontFamily: 'Space Mono, monospace', fontSize: '13px' }}>
-            <span>💬 <strong>{userCredits.texts}</strong> {t('texts', 'ጽሑፎች')}</span>
-            <span>·</span>
-            <span>🎙️ <strong>{(userCredits.voiceSeconds / 60).toFixed(1)}</strong> {t('voice min', 'የድምፅ ደቂቃ')}</span>
-            <Link href="/wallet" style={{ fontSize: '11px', textTransform: 'uppercase', textDecoration: 'underline', marginLeft: '6px' }}>
-              {t('My balance →', 'ቀሪ ሂሳብ →')}
-            </Link>
+            {/* Compact Balance strip */}
+            <div className="chat-balance-card">
+              <div className="chat-balance-metrics">
+                <div className="chat-balance-item">
+                  <span>💬</span>
+                  <span><strong>{userCredits.texts}</strong> {t('texts', 'ጽሑፎች')}</span>
+                </div>
+                <span style={{ opacity: 0.4 }}>·</span>
+                <div className="chat-balance-item">
+                  <span>🎙️</span>
+                  <span><strong>{(userCredits.voiceSeconds / 60).toFixed(1)}</strong> {t('voice min', 'የድምፅ ደቂቃ')}</span>
+                </div>
+              </div>
+              <Link href="/wallet" className="chat-balance-link">
+                {t('My balance →', 'ቀሪ ሂሳብ →')}
+              </Link>
+            </div>
+
+            {/* Action buttons */}
+            <div className="chat-actions-group">
+              <Link href="/therapists" className="btn-browse">
+                {t('Browse Directory →', 'ባለሙያዎችን ይመልከቱ →')}
+              </Link>
+              <Link href="/packages" className="btn-package">
+                + {t('Buy Package', 'ጥቅል ይግዙ')}
+              </Link>
+            </div>
+
+            {/* 2x2 Clean Features Grid */}
+            <div className="chat-features-grid">
+              <div className="chat-feature-chip">
+                <Shield size={14} className="chip-icon" />
+                <span>{t('Strict confidentiality', 'ሙሉ ሚስጥራዊነት')}</span>
+              </div>
+              <div className="chat-feature-chip">
+                <Mic size={14} className="chip-icon" />
+                <span>{t('Text & voice notes', 'ጽሑፍና ድምፅ')}</span>
+              </div>
+              <div className="chat-feature-chip">
+                <Calendar size={14} className="chip-icon" />
+                <span>{t('Book live sessions', 'የቀጠሮ ሰሌዳ')}</span>
+              </div>
+              <div className="chat-feature-chip">
+                <CreditCard size={14} className="chip-icon" />
+                <span>{t('Telebirr & CBE verified', 'ቴሌብርና ንግድ ባንክ')}</span>
+              </div>
+            </div>
+
+            {/* Subtle footnote */}
+            <p className="chat-footer-note">
+              {t(
+                'Packages stay with your account wallet and can be purchased before choosing a practitioner. Newly registered practices appear as soon as credentials are reviewed by administrators.',
+                'የገዟቸው ጥቅሎች በመለያዎ ውስጥ ይቀመጣሉ። አዳዲስ ባለሙያዎች ፈቃዳቸው ሲረጋገጥ ወዲያውኑ በዝርዝሩ ውስጥ ይታያሉ።'
+              )}
+            </p>
           </div>
-
-          <div style={{ display: 'flex', gap: '14px', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link href="/therapists" className="solid">
-              {t('Browse Directory →', 'ባለሙያዎችን ይመልከቱ →')}
-            </Link>
-            <Link href="/packages" style={{ padding: '12px 22px', border: '3px solid var(--ink)', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', background: 'var(--paper)', color: 'var(--ink)' }}>
-              + {t('Buy Text & Voice Package', 'የቻት ጥቅል ይግዙ')}
-            </Link>
-          </div>
-
-          <div className="chat-no-therapist-features">
-            <div className="chat-feature-pill">🔒 {t('Strict confidentiality', 'ሙሉ ሚስጥራዊነት')}</div>
-            <div className="chat-feature-pill">🎙️ {t('Text & voice notes', 'ጽሑፍና የድምፅ መልዕክት')}</div>
-            <div className="chat-feature-pill">📅 {t('Book live sessions', 'የቀጠሮ ሰሌዳ')}</div>
-            <div className="chat-feature-pill">💳 {t('Telebirr & CBE verified', 'ቴሌብርና ንግድ ባንክ')}</div>
-          </div>
-
-          <p className="muted" style={{ marginTop: '32px', fontSize: '12px', maxWidth: '520px', marginLeft: 'auto', marginRight: 'auto' }}>
-            {t(
-              'Packages stay with your account wallet and can be purchased before choosing a practitioner. Newly registered practices appear as soon as credentials are reviewed by administrators.',
-              'የገዟቸው ጥቅሎች በመለያዎ ውስጥ ይቀመጣሉ። አዳዲስ ባለሙያዎች ፈቃዳቸው ሲረጋገጥ ወዲያውኑ በዝርዝሩ ውስጥ ይታያሉ።'
-            )}
-          </p>
         </div>
       </main>
     );

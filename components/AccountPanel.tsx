@@ -34,7 +34,14 @@ export default function AccountPanel() {
   const [prefs, setPrefs] = useState({ telegram_notifications: true, email_notifications: true });
   const [profileReady, setProfileReady] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [cooldown, setCooldown] = useState(0);
   const bot = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME;
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const interval = setInterval(() => setCooldown(c => Math.max(0, c - 1)), 1000);
+    return () => clearInterval(interval);
+  }, [cooldown]);
 
   useEffect(() => {
     const db = getSupabase();
@@ -135,17 +142,30 @@ export default function AccountPanel() {
           await recordTerms();
           setNotice('You’re signed in. Welcome to Addis.');
           if (destination) router.replace(destination);
+        } else if (result.data.user && Array.isArray(result.data.user.identities) && result.data.user.identities.length === 0) {
+          // In Supabase, empty identities array indicates this email is already registered and confirmed
+          setMode('signin');
+          setNotice('An account with this email is already registered and confirmed. Please sign in with your password, or use "Forgot password?" if needed.');
         } else {
-          // Switch to 6-digit confirmation code verification
+          // Switch to confirmation code verification and start 60s cooldown
           setMode('verify-code');
-          setNotice(`A 6-digit verification code was sent to ${email.trim()}. Enter it below to activate your account.`);
+          setCooldown(60);
+          setNotice(`A verification code was sent to ${email.trim()}. Enter it below to activate your account.`);
         }
         return;
       }
 
       // Default signin with email/password
       const result = await db.auth.signInWithPassword({ email: email.trim(), password });
-      if (result.error) { if (result.error.code === 'email_not_confirmed') { setMode('verify-code'); setNotice('Your email still needs confirmation. Enter the code from your email, or request a fresh one below.'); return; } throw result.error; }
+      if (result.error) {
+        if (result.error.code === 'email_not_confirmed') {
+          setMode('verify-code');
+          setCooldown(0);
+          setNotice('Your email still needs confirmation. Enter the code from your email, or request a fresh one below.');
+          return;
+        }
+        throw result.error;
+      }
       setPassword('');
       if (result.data.session) {
         setNotice('You’re signed in. Welcome to Addis.');
@@ -159,7 +179,7 @@ export default function AccountPanel() {
       const db = getSupabase();
       if (!db) throw new Error('Authentication unavailable.');
       const code = otpCode.trim();
-      if (!/^\d{6}$/.test(code)) throw new Error('Please enter the 6-digit verification code.');
+      if (!/^\d{6,8}$/.test(code)) throw new Error('Please enter the verification code.');
 
       const { error } = await db.auth.verifyOtp({
         email: email.trim(),
@@ -176,6 +196,7 @@ export default function AccountPanel() {
   }
 
   async function resendCode() {
+    if (cooldown > 0) return;
     await perform(async () => {
       const db = getSupabase();
       if (!db) throw new Error('Service unavailable.');
@@ -184,8 +205,15 @@ export default function AccountPanel() {
         email: email.trim(),
         options: { emailRedirectTo: window.location.origin + '/account' }
       });
-      if (error) throw error;
-      setNotice(`A new 6-digit code was sent to ${email.trim()}.`);
+      if (error) {
+        if (error.status === 429 || error.message.toLowerCase().includes('rate limit') || error.message.toLowerCase().includes('security purposes')) {
+          setCooldown(60);
+          throw new Error('Supabase limits how frequently emails can be sent. Please wait a minute before requesting another code.');
+        }
+        throw error;
+      }
+      setCooldown(60);
+      setNotice(`A fresh verification code was sent to ${email.trim()}.`);
     });
   }
 
@@ -298,15 +326,28 @@ export default function AccountPanel() {
             {mode === 'verify-code' ? (
               <form onSubmit={e => { e.preventDefault(); void verifyOtpCode(); }}>
                 <p style={{ fontSize: '14px', lineHeight: 1.6, margin: '0 0 16px', color: 'var(--muted-text)' }}>
-                  We sent a 6-digit confirmation code to <strong>{email}</strong>. Enter it below to activate your account and start your care.
+                  We sent a verification code to <strong>{email}</strong>. Enter it below to activate your account.
                 </p>
+                {notice && (
+                  <div style={{
+                    background: 'var(--surface-soft)',
+                    border: '1.5px solid var(--ink)',
+                    padding: '10px 14px',
+                    marginBottom: '16px',
+                    fontSize: '13px',
+                    lineHeight: 1.5,
+                    fontWeight: 500
+                  }}>
+                    {notice}
+                  </div>
+                )}
                 <label>
                   Verification code
                   <input
                     type="text"
                     inputMode="numeric"
-                    pattern="[0-9]{6}"
-                    maxLength={6}
+                    pattern="[0-9]{6,8}"
+                    maxLength={8}
                     required
                     autoFocus
                     autoComplete="one-time-code"
@@ -323,12 +364,18 @@ export default function AccountPanel() {
                     }}
                   />
                 </label>
-                <button className="solid account-submit" disabled={busy || otpCode.length !== 6}>
+                <button className="solid account-submit" disabled={busy || otpCode.length < 6}>
                   {busy ? 'Verifying…' : 'Confirm Code & Enter'} <ArrowRight size={17} />
                 </button>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px', fontSize: '12px' }}>
-                  <button type="button" className="account-text-button" style={{ padding: 0 }} onClick={() => void resendCode()} disabled={busy}>
-                    Resend code
+                  <button
+                    type="button"
+                    className="account-text-button"
+                    style={{ padding: 0 }}
+                    onClick={() => void resendCode()}
+                    disabled={busy || cooldown > 0}
+                  >
+                    {cooldown > 0 ? `Resend code (${cooldown}s)` : 'Resend code'}
                   </button>
                   <button type="button" className="account-text-button" style={{ padding: 0 }} onClick={() => { setMode('signup'); setNotice(''); }}>
                     Use different email
