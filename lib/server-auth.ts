@@ -9,5 +9,7 @@ export async function authorize(request: Request) {
   const db = createClient(url, key, { global: { headers: { Authorization: authorization } }, auth: { persistSession: false, autoRefreshToken: false } });
   const { data, error } = await db.auth.getUser(authorization.slice(7));
   if (error || !data.user) throw new Error('Unauthorized');
+  const status = await db.from('account_status').select('status').eq('user_id', data.user.id).maybeSingle();
+  if (status.error || (status.data && status.data.status !== 'active')) throw new Error('This account is not active. Contact support.');
   return { db, user: data.user };
 }

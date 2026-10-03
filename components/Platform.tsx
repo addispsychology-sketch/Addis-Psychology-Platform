@@ -6,6 +6,9 @@ import { Therapist } from '@/lib/data';
 import { languagesAm } from '@/lib/localization';
 import { Balance } from '@/lib/commerce';
 import { useMessaging, type Conversation } from '@/lib/useMessaging';
+import {useWallet,type WalletData} from '@/lib/useWallet';
+import ClientNav from './ClientNav';
+import TermsGate from './TermsGate';
 import AudioCalls from './AudioCalls';
 import { useAppointments } from '@/lib/useAppointments';
 
@@ -85,6 +88,8 @@ const initial: State = { balances: {}, appointments: [], settings: {}, receipts:
 const key = 'addis-platform-live-v1';
 
 type API = {
+  wallet: WalletData | null;
+  refreshWallet: () => Promise<void>;
   userId: string | null;
   ownTherapistId: number | null;
   conversations: Conversation[];
@@ -123,6 +128,7 @@ const Context = createContext<API | null>(null);
 
 export function Platform({ children }: { children: ReactNode }) {
   const cloud = useMessaging();
+  const finances = useWallet(cloud.userId);
   const bookings = useAppointments(cloud.userId);
   const messages = cloud.messages;
   const [lang, setLanguage] = useState<'en' | 'am'>('en');
@@ -201,7 +207,7 @@ export function Platform({ children }: { children: ReactNode }) {
     };
   };
 
-  const balance = () => ({ texts: Number.POSITIVE_INFINITY, voiceSeconds: Number.POSITIVE_INFINITY });
+  const balance = () => finances.data?.credit_lots.reduce((total,lot)=>({texts:total.texts+lot.texts,voiceSeconds:total.voiceSeconds+lot.voice_seconds}),{texts:0,voiceSeconds:0}) || {texts:0,voiceSeconds:0};
 
   const people = combinedTherapists.map(p => {
     if (lang === 'am') {
@@ -214,6 +220,7 @@ export function Platform({ children }: { children: ReactNode }) {
   });
 
   const api: API = {
+    wallet: finances.data, refreshWallet: finances.refresh,
     loadMoreMessages: cloud.loadMoreMessages,
     userId: cloud.userId, ownTherapistId: cloud.ownTherapistId, conversations: cloud.conversations,
     activeConversation: cloud.activeConversation, setActiveConversation: cloud.setActiveConversation, ensureConversation: cloud.ensureConversation,
@@ -239,8 +246,8 @@ export function Platform({ children }: { children: ReactNode }) {
     date: (v, opts) =>
       new Date(v).toLocaleDateString(lang === 'am' ? 'am-ET' : 'en-GB', opts || { day: 'numeric', month: 'short', year: 'numeric' }),
     money: n => `${n.toLocaleString(lang === 'am' ? 'am-ET' : 'en-GB')} ${t('ETB', 'ብር')}`,
-    buy: () => { setError('Paid packages are not enabled yet. Messaging is available without credits.'); return false; },
-    send: cloud.send,
+    buy: () => { window.location.assign('/packages'); return false; },
+    send: async (...args) => { const sent=await cloud.send(...args); if(sent) await finances.refresh(); return sent; },
     reply: (id, text, audio) => cloud.send(id, audio ? 'voice' : 'text', audio || text || ''),
     updateSettings: cloud.updateSettings,
     book: () => { setError('Online booking is not enabled yet. Please contact the practice.'); return false; },
@@ -280,6 +287,8 @@ export function Platform({ children }: { children: ReactNode }) {
       )}
       <AudioCalls userId={cloud.userId} conversations={cloud.conversations} />
       {children}
+      <ClientNav />
+      <TermsGate />
     </Context.Provider>
   );
 }

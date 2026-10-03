@@ -4579,3 +4579,235 @@ body .platform-nav a.account-nav-link, body .mobile-header-actions a.account-nav
   .account-layout { margin-bottom: 40px; }
   .account-intro h1 { font-size: 35px; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   NEW FEATURES: Chat no-therapist hero, Telegram welcome banner,
+   Client dock improvements — added 2026-10-03
+═══════════════════════════════════════════════════════════════════ */
+
+/* ── Chat: No Therapist Selected Hero ── */
+.chat-no-therapist-hero {
+  max-width: 640px;
+  margin: 60px auto;
+  text-align: center;
+  padding: clamp(24px, 5vw, 48px);
+}
+.chat-no-therapist-icon {
+  font-size: 56px;
+  margin-bottom: 16px;
+  line-height: 1;
+}
+.chat-no-therapist-hero h1 {
+  font-size: clamp(36px, 5vw, 54px);
+  margin: 8px 0 0;
+}
+.chat-no-therapist-features {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 36px;
+}
+.chat-feature-pill {
+  padding: 10px 18px;
+  border: 2px solid var(--ink);
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+/* ── Telegram Welcome Banner ── */
+.tg-welcome-banner {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  background: var(--ink);
+  color: var(--paper);
+  border-top: 4px solid var(--ink);
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.3);
+  animation: slideUpBanner 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes slideUpBanner {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.tg-welcome-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 16px 20px;
+  flex-wrap: wrap;
+}
+.tg-welcome-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+}
+.tg-welcome-mark {
+  width: 44px;
+  height: 44px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'Archivo Black', sans-serif;
+  font-size: 15px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  letter-spacing: -0.5px;
+}
+.tg-welcome-text strong {
+  display: block;
+  font-family: 'Archivo Black', sans-serif;
+  font-size: 14px;
+  color: var(--paper);
+  margin-bottom: 2px;
+}
+.tg-welcome-text p {
+  font-size: 12px;
+  color: rgba(255,255,255,0.75);
+  margin: 0;
+  line-height: 1.4;
+}
+.tg-welcome-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.tg-welcome-cta {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 20px;
+  background: var(--paper);
+  color: var(--ink) !important;
+  border: 2px solid var(--paper);
+  font-family: 'Archivo Black', sans-serif;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  text-decoration: none !important;
+  font-weight: 900;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.tg-welcome-cta:hover {
+  background: transparent;
+  color: var(--paper) !important;
+}
+.tg-welcome-dismiss {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: rgba(255,255,255,0.6);
+  border: 1px solid rgba(255,255,255,0.2);
+  font-size: 14px;
+  padding: 0;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.tg-welcome-dismiss:hover {
+  background: rgba(255,255,255,0.1);
+  color: var(--paper);
+}
+
+/* ── Client Dock (Bottom Nav) ── */
+.client-dock {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  display: flex;
+  align-items: stretch;
+  background: var(--ink);
+  border-top: 3px solid var(--ink);
+  box-shadow: 0 -3px 20px rgba(0,0,0,0.15);
+  height: 62px;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+.client-dock a {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: rgba(255,255,255,0.6) !important;
+  text-decoration: none !important;
+  font-size: 11px;
+  font-family: 'Space Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 700;
+  padding: 8px 4px;
+  transition: color 0.15s ease, background 0.15s ease;
+  border-right: 1px solid rgba(255,255,255,0.1);
+  position: relative;
+}
+.client-dock a:last-child { border-right: none; }
+.client-dock a:hover,
+.client-dock a[aria-current="page"] {
+  color: var(--paper) !important;
+  background: rgba(255,255,255,0.1);
+}
+.client-dock a[aria-current="page"] {
+  border-bottom: 3px solid var(--paper);
+}
+.client-dock .dock-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.unread-badge {
+  position: absolute;
+  top: -6px;
+  right: -10px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  background: #e53e3e;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 900;
+  font-family: 'Space Mono', monospace;
+  border-radius: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  border: 2px solid var(--ink);
+}
+
+/* Add body padding when client dock is visible */
+body:has(.client-dock) main,
+body:has(.client-dock) .platform-main {
+  padding-bottom: calc(66px + env(safe-area-inset-bottom, 0px) + 16px);
+}
+
+/* ── Beautiful ClientNav Label Icons ── */
+.client-dock a svg {
+  stroke-width: 2px;
+}
+
+@media (max-width: 480px) {
+  .tg-welcome-text p { display: none; }
+  .tg-welcome-text strong { font-size: 13px; }
+  .tg-welcome-inner { padding: 12px 14px; gap: 10px; }
+  .client-dock a { font-size: 9px; }
+}

@@ -1,0 +1,3 @@
+"use client";
+import Link from 'next/link';
+export default function TermsConsent({checked,onChange,therapist=false}:{checked:boolean;onChange:(value:boolean)=>void;therapist?:boolean}){return <label className="terms-consent"><input type="checkbox" required checked={checked} onChange={e=>onChange(e.target.checked)}/><span>I have read and accept the <Link href={therapist?'/terms/therapists':'/terms'} target="_blank">{therapist?'Therapist':'Client'} Terms & Conditions</Link>, including confidentiality, the 5% non-refundable service fee, and the cancellation and refund policy.</span></label>}

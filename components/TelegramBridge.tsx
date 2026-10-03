@@ -22,7 +22,7 @@ export default function TelegramBridge() {
         const session = (await getSupabase()?.auth.getSession())?.data.session;
         if (!session) {
           const result = await telegramSignIn(false, false);
-          if (result.needsAccount && alive) setNotice('Welcome to Addis. Open Account to join with Telegram or connect your existing account.');
+          if (result.needsAccount && alive) setNotice('needs-account');
         }
         // start_param is navigation only. Authentication always uses server-verified initData.
         const start = new URLSearchParams(app.initData).get('start_param');
@@ -35,8 +35,40 @@ export default function TelegramBridge() {
     const stop = setTimeout(() => clearInterval(timer), 10000);
     return () => { alive = false; clearInterval(timer); clearTimeout(stop); window.Telegram?.WebApp?.BackButton.offClick(back); };
   }, [router]);
-  return <><Script src="https://telegram.org/js/telegram-web-app.js" strategy="afterInteractive" />
+
+  return <>
+    <Script src="https://telegram.org/js/telegram-web-app.js" strategy="afterInteractive" />
     {process.env.NEXT_PUBLIC_TELEGRAM_LOGIN_CLIENT_ID && <Script src="https://telegram.org/js/telegram-login.js" strategy="afterInteractive" />}
-    {notice && <div className="system-note" role="status"><a href="/account">{notice}</a><button aria-label="Dismiss Telegram notice" onClick={() => setNotice('')}>×</button></div>}
+    {notice === 'needs-account' && (
+      <div className="tg-welcome-banner" role="status">
+        <div className="tg-welcome-inner">
+          <div className="tg-welcome-left">
+            <div className="tg-welcome-mark">AP</div>
+            <div className="tg-welcome-text">
+              <strong>Welcome to Addis Psychology</strong>
+              <p>Connect your account to access private therapy sessions, appointments, and confidential messaging.</p>
+            </div>
+          </div>
+          <div className="tg-welcome-actions">
+            <a href="/account" className="tg-welcome-cta">
+              Open Account →
+            </a>
+            <button
+              aria-label="Dismiss welcome notice"
+              className="tg-welcome-dismiss"
+              onClick={() => setNotice('')}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    {notice && notice !== 'needs-account' && (
+      <div className="system-note" role="status">
+        <a href="/account">{notice}</a>
+        <button aria-label="Dismiss Telegram notice" onClick={() => setNotice('')}>×</button>
+      </div>
+    )}
   </>;
 }

@@ -8,6 +8,12 @@ insert into public.practitioners(id, user_id, profile, approved) overriding syst
 (-1, '00000000-0000-4000-8000-000000000002', '{}', true);
 insert into public.conversations(id, client_id, therapist_id) values
 ('00000000-0000-4000-8000-000000000004', '00000000-0000-4000-8000-000000000001', -1);
+insert into public.terms_acceptances(user_id, audience, version) values
+('00000000-0000-4000-8000-000000000001', 'client', '2026-10-03');
+insert into public.payment_requests(user_id, kind, principal_cents, fee_cents, method, reference, status) values
+('00000000-0000-4000-8000-000000000001', 'combined', 100, 5, 'telebirr', 'RLS-TEST-00001', 'approved');
+insert into public.credit_lots(user_id, payment_id, texts, voice_seconds, initial_texts, initial_voice_seconds, principal_cents)
+select user_id, id, 100, 3600, 100, 3600, 100 from public.payment_requests where reference = 'RLS-TEST-00001';
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000001', true);
 insert into public.messages(conversation_id, sender_id, text) values
@@ -19,11 +25,11 @@ do $$ begin
     raise exception 'FAIL: forged sender accepted';
   exception when insufficient_privilege then null; end;
   begin
-    insert into public.messages(conversation_id,sender_id,audio_url) values ('00000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000001','/api/voice?key=00000000-0000-4000-8000-000000000004%2F00000000-0000-4000-8000-000000000003%2F00000000-0000-4000-8000-000000000005');
+    insert into public.messages(conversation_id,sender_id,audio_url,duration_seconds) values ('00000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000001','/api/voice?key=00000000-0000-4000-8000-000000000004%2F00000000-0000-4000-8000-000000000003%2F00000000-0000-4000-8000-000000000005',30);
     raise exception 'FAIL: another user audio path accepted';
   exception when insufficient_privilege then null; end;
 end $$;
-insert into public.messages(conversation_id,sender_id,audio_url) values ('00000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000001','/api/voice?key=00000000-0000-4000-8000-000000000004%2F00000000-0000-4000-8000-000000000001%2F00000000-0000-4000-8000-000000000005');
+insert into public.messages(conversation_id,sender_id,audio_url,duration_seconds) values ('00000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000001','/api/voice?key=00000000-0000-4000-8000-000000000004%2F00000000-0000-4000-8000-000000000001%2F00000000-0000-4000-8000-000000000005',30);
 select set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000002', true);
 do $$ begin
   if (select count(*) from public.messages where conversation_id = '00000000-0000-4000-8000-000000000004') <> 2 then raise exception 'Therapist cannot read client messages'; end if;

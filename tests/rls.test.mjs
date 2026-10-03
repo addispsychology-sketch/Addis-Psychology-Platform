@@ -55,7 +55,7 @@ test('migration enforces participant access, sender identity, and approval privi
           raise exception 'FAIL: forged upload owner accepted';
         exception when insufficient_privilege then null; end;
       end $$;
-      insert into public.messages(conversation_id,sender_id,audio_url) values ('00000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000001','/api/voice?key=00000000-0000-4000-8000-000000000004%2F00000000-0000-4000-8000-000000000001%2F00000000-0000-4000-8000-000000000005&storage=supabase');
+      insert into public.messages(conversation_id,sender_id,audio_url,duration_seconds) values ('00000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000001','/api/voice?key=00000000-0000-4000-8000-000000000004%2F00000000-0000-4000-8000-000000000001%2F00000000-0000-4000-8000-000000000005&storage=supabase',30);
       select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',true);
       do $$ begin
         if not exists(select 1 from storage.objects) then raise exception 'Recipient cannot read voice'; end if;

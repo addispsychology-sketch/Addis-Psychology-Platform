@@ -270,7 +270,57 @@ function TrueFullscreenChat() {
 
   if (!userId) return <Page><section className="chat-signin-card"><span className="account-eyebrow">A PRIVATE SPACE TO TALK</span><h1>Start with a hello.</h1><p>Sign in or create a free account to message a therapist. Your conversations stay connected to you, on the website and in Telegram.</p><Link className="solid" href={`/account?next=${encodeURIComponent(params.get('therapist') ? `/chat?therapist=${initialId}` : '/chat')}`}>Sign in / Create account →</Link><p><Link href="/therapists">Explore therapists first</Link></p></section></Page>;
   if (ownTherapistId) return <main className="platform-main"><Link className="solid" href="/portal">Open your client conversations</Link></main>;
-  if (!activePerson) return <main className="platform-main"><h1>No therapist selected</h1><p>Choose an approved practitioner from the directory. Newly registered practices appear after approval.</p><Link href="/therapists">Open directory</Link></main>;
+  if (!activePerson) {
+    const userCredits = balance(0);
+    return (
+      <main className="platform-main">
+        <div className="chat-no-therapist-hero">
+          <div className="chat-no-therapist-icon">💬</div>
+          <span className="eyebrow">{t('CONFIDENTIAL SANCTUARY / ADDIS PSYCHOLOGY', 'ሚስጥራዊ መጠጊያ / አዲስ ሳይኮሎጂ')}</span>
+          <h1>{t('Find your therapist.', 'ባለሙያዎን ይምረጡ።')}</h1>
+          <p className="lede" style={{ maxWidth: '540px', margin: '12px auto 20px' }}>
+            {t(
+              'Choose an approved practitioner from the directory to start private text and voice messaging. You can also purchase your package in advance.',
+              'የግል ውይይት ለመጀመር ከተፈቀደላቸው ባለሙያዎች ዝርዝር ይምረጡ። ጥቅሎችን አስቀድመው መግዛትም ይችላሉ።'
+            )}
+          </p>
+
+          {/* Balance badge */}
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '14px', padding: '12px 22px', border: '2px solid var(--ink)', background: 'var(--surface-soft)', marginBottom: '24px', fontFamily: 'Space Mono, monospace', fontSize: '13px' }}>
+            <span>💬 <strong>{userCredits.texts}</strong> {t('texts', 'ጽሑፎች')}</span>
+            <span>·</span>
+            <span>🎙️ <strong>{(userCredits.voiceSeconds / 60).toFixed(1)}</strong> {t('voice min', 'የድምፅ ደቂቃ')}</span>
+            <Link href="/wallet" style={{ fontSize: '11px', textTransform: 'uppercase', textDecoration: 'underline', marginLeft: '6px' }}>
+              {t('My balance →', 'ቀሪ ሂሳብ →')}
+            </Link>
+          </div>
+
+          <div style={{ display: 'flex', gap: '14px', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Link href="/therapists" className="solid">
+              {t('Browse Directory →', 'ባለሙያዎችን ይመልከቱ →')}
+            </Link>
+            <Link href="/packages" style={{ padding: '12px 22px', border: '3px solid var(--ink)', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', background: 'var(--paper)', color: 'var(--ink)' }}>
+              + {t('Buy Text & Voice Package', 'የቻት ጥቅል ይግዙ')}
+            </Link>
+          </div>
+
+          <div className="chat-no-therapist-features">
+            <div className="chat-feature-pill">🔒 {t('Strict confidentiality', 'ሙሉ ሚስጥራዊነት')}</div>
+            <div className="chat-feature-pill">🎙️ {t('Text & voice notes', 'ጽሑፍና የድምፅ መልዕክት')}</div>
+            <div className="chat-feature-pill">📅 {t('Book live sessions', 'የቀጠሮ ሰሌዳ')}</div>
+            <div className="chat-feature-pill">💳 {t('Telebirr & CBE verified', 'ቴሌብርና ንግድ ባንክ')}</div>
+          </div>
+
+          <p className="muted" style={{ marginTop: '32px', fontSize: '12px', maxWidth: '520px', marginLeft: 'auto', marginRight: 'auto' }}>
+            {t(
+              'Packages stay with your account wallet and can be purchased before choosing a practitioner. Newly registered practices appear as soon as credentials are reviewed by administrators.',
+              'የገዟቸው ጥቅሎች በመለያዎ ውስጥ ይቀመጣሉ። አዳዲስ ባለሙያዎች ፈቃዳቸው ሲረጋገጥ ወዲያውኑ በዝርዝሩ ውስጥ ይታያሉ።'
+            )}
+          </p>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <div className="pure-fullscreen-chat">

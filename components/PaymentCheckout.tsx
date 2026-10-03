@@ -1,0 +1,18 @@
+"use client";
+import {useState} from 'react';
+import Link from 'next/link';
+import {authenticatedFetch} from '@/lib/supabase';
+import {usePlatform} from './Platform';
+import {birrCents,PACKAGE_PRINCIPAL,PAYEE,PAYMENT_DESTINATIONS,moneyCents,serviceFee} from '@/lib/payment-policy';
+export default function PaymentCheckout({kind='wallet'}:{kind?:'wallet'|'text'|'voice'|'combined'}){
+ const {userId,refreshWallet}=usePlatform();const [amount,setAmount]=useState('1000');const [method,setMethod]=useState<'telebirr'|'cbe'>('telebirr');const [reference,setReference]=useState('');const [busy,setBusy]=useState(false);const [notice,setNotice]=useState('');let principal=0;try{principal=kind==='wallet'?birrCents(amount):PACKAGE_PRINCIPAL[kind]}catch{}
+ return <section className="care-card payment-checkout"><span className="eyebrow">PAYMENT / CLEAR FROM THE START</span><h2>{kind==='wallet'?'Add therapy funds.':'Your package, ready when you are.'}</h2><p>Transfer the exact total below, then submit your transaction reference. Funds are added after we confirm receipt in the bank or Telebirr account.</p>{!userId?<Link className="solid" href="/account?next=/wallet">Sign in to make a payment →</Link>:<form onSubmit={async e=>{e.preventDefault();setBusy(true);setNotice('');try{await authenticatedFetch('/api/wallet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'payment',kind,amount,method,reference})});setNotice('Received for review. Your balance will update only after the transfer is verified.');setReference('');await refreshWallet()}catch(error){setNotice(error instanceof Error?error.message:'Please try again')}finally{setBusy(false)}}}>
+ {kind==='wallet'&&<label>Amount to keep for therapy (ETB)<input inputMode="decimal" required value={amount} onChange={e=>setAmount(e.target.value)} placeholder="1000.00"/></label>}
+ <dl className="payment-breakdown"><div><dt>{kind==='wallet'?'Therapy funds':'Package value'}</dt><dd>{moneyCents(principal)}</dd></div><div><dt>Addis service fee · 5%<small>Non-refundable after payment verification</small></dt><dd>{moneyCents(serviceFee(principal))}</dd></div><div className="payment-total"><dt>Total to transfer</dt><dd>{moneyCents(principal+serviceFee(principal))}</dd></div></dl>
+ <div className="account-tabs"><button type="button" aria-pressed={method==='telebirr'} onClick={()=>setMethod('telebirr')}>Telebirr</button><button type="button" aria-pressed={method==='cbe'} onClick={()=>setMethod('cbe')}>CBE</button></div>
+ <div className="bank-detail"><span>RECIPIENT / {method==='cbe'?'COMMERCIAL BANK OF ETHIOPIA':'TELEBIRR'}</span><strong>{PAYEE}</strong><code>{PAYMENT_DESTINATIONS[method]}</code><p>Check the recipient name before confirming. Never send your PIN, password or verification code to us.</p></div>
+ <label>Transaction reference<input required minLength={5} maxLength={100} pattern="[A-Za-z0-9-]+" value={reference} onChange={e=>setReference(e.target.value)} placeholder="Reference on your transfer receipt"/></label>
+ <label className="terms-consent"><input type="checkbox" required/><span>I transferred the total shown to {PAYEE}. I understand the 5% service fee is non-refundable and credit is pending verification.</span></label>
+ <button className="solid" disabled={busy||principal<=0}>{busy?'Submitting…':'Submit transfer for verification →'}</button><p className="account-small">This page records your transfer; it does not move money from your bank. <Link href="/terms#payments">Read payment and refund terms</Link>.</p>
+ </form>}{notice&&<p className="account-notice" role="status">{notice}</p>}</section>
+}

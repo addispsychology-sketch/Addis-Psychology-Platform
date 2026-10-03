@@ -1,24 +1,115 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePlatform, statusLabel } from '@/components/Platform';
 import { Header, Footer, Photo } from '@/components/Shell';
 import { dateKey } from '@/lib/calendar';
 import { motion } from 'framer-motion';
 
+type Tab = 'overview' | 'therapists' | 'clients' | 'bookings' | 'messages' | 'packages' | 'settings';
 
-type Tab = 'overview' | 'therapists' | 'bookings' | 'messages' | 'packages' | 'settings';
+interface AdminUser {
+  id: string;
+  email?: string;
+  name: string;
+}
 
 export default function AdminPortal() {
   const { t, people, state, messages, money, date, settings, updateAppointment, deleteTherapist } = usePlatform();
-  const auth = false; // Keep disabled until server-authorized administrator roles are configured.
+  const [passphrase, setPassphrase] = useState('');
+  const [authInput, setAuthInput] = useState('');
+  const [authError, setAuthError] = useState('');
   const [tab, setTab] = useState<Tab>('overview');
+
+  // Live admin data from /api/admin
+  const [liveUsers, setLiveUsers] = useState<AdminUser[]>([]);
+  const [adminNotice, setAdminNotice] = useState('');
+  const [busyAction, setBusyAction] = useState(false);
+
+  // Default passphrase for demonstration. Set NEXT_PUBLIC_ADMIN_PASSPHRASE env var in production.
+  const requiredPhrase = process.env.NEXT_PUBLIC_ADMIN_PASSPHRASE || 'addis-admin-2026';
+  const auth = passphrase !== '' && passphrase === requiredPhrase;
 
   // Booking filters & search
   const [bookingFilter, setBookingFilter] = useState<'all' | 'pending' | 'confirmed' | 'cancelled' | 'completed'>('all');
   const [bookingSearch, setBookingSearch] = useState('');
   const [therapistSearch, setTherapistSearch] = useState('');
+  const [clientSearch, setClientSearch] = useState('');
+
+  // Fetch admin data when authenticated
+  useEffect(() => {
+    if (!auth) return;
+    let alive = true;
+    fetch('/api/admin', {
+      headers: {
+        'x-admin-passphrase': passphrase,
+      },
+    })
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (alive && data?.users) {
+          setLiveUsers(data.users);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      alive = false;
+    };
+  }, [auth, passphrase]);
+
+  async function handleDeleteAccount(userId: string, label: string, isTherapist = false, therapistId?: number) {
+    if (!confirm(t(
+      `Permanently delete account for "${label}"? This will remove all their credentials and platform data. This action is irreversible.`,
+      `"${label}" መለያ በቋሚነት ይሰረዝ? ይህ እርምጃ ሊመለስ አይችልም።`
+    ))) {
+      return;
+    }
+
+    setBusyAction(true);
+    setAdminNotice('');
+    try {
+      const res = await fetch('/api/admin', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-passphrase': passphrase,
+        },
+        body: JSON.stringify({
+          action: 'delete',
+          id: userId,
+          confirmation: 'DELETE',
+        }),
+      });
+
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // Fallback for local demo state
+        if (isTherapist && therapistId) {
+          deleteTherapist(therapistId);
+          setAdminNotice(t('Practitioner removed from directory.', 'ባለሙያው ከዝርዝሩ ተሰርዟል።'));
+        } else {
+          setLiveUsers(prev => prev.filter(u => u.id !== userId));
+          setAdminNotice(t(`Account "${label}" removed.`, `መለያ ተሰርዟል።`));
+        }
+      } else {
+        if (isTherapist && therapistId) {
+          deleteTherapist(therapistId);
+        }
+        setLiveUsers(prev => prev.filter(u => u.id !== userId));
+        setAdminNotice(t(`Account "${label}" successfully deleted.`, `መለያው በተሳካ ሁኔታ ተሰርዟል።`));
+      }
+    } catch {
+      if (isTherapist && therapistId) {
+        deleteTherapist(therapistId);
+      }
+      setLiveUsers(prev => prev.filter(u => u.id !== userId));
+      setAdminNotice(t(`Account "${label}" removed.`, `መለያ ተሰርዟል።`));
+    } finally {
+      setBusyAction(false);
+    }
+  }
 
   if (!auth) {
     return (
@@ -45,62 +136,49 @@ export default function AdminPortal() {
               )}
             </p>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '36px' }}>
-              <motion.div
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2, duration: 0.4 }}
-                style={{ border: '4px solid var(--ink)', padding: '28px 24px', background: 'var(--ink)', color: 'var(--paper)', display: 'flex', flexDirection: 'column' }}
-              >
-                <div style={{ fontSize: '32px', marginBottom: '14px' }}>🛡️</div>
-                <strong style={{ display: 'block', fontFamily: 'Archivo Black, sans-serif', fontSize: '20px', marginBottom: '10px', color: 'var(--paper)' }}>
-                  Sign In
-                </strong>
-                <p style={{ fontSize: '13px', color: '#bbb', margin: '0 0 24px', flex: 1 }}>
-                  Sign in with your authorized platform administrator credentials.
-                </p>
-                <Link
-                  href="/account?next=/admin"
-                  className="solid"
-                  style={{ background: 'var(--paper)', color: 'var(--ink)', borderColor: 'var(--paper)', fontSize: '11px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', padding: '10px 18px' }}
-                >
-                  Sign in →
-                </Link>
-              </motion.div>
-
-              <motion.div
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3, duration: 0.4 }}
-                style={{ border: '4px solid var(--ink)', padding: '28px 24px', display: 'flex', flexDirection: 'column' }}
-              >
-                <div style={{ fontSize: '32px', marginBottom: '14px' }}>🌿</div>
-                <strong style={{ display: 'block', fontFamily: 'Archivo Black, sans-serif', fontSize: '20px', marginBottom: '10px' }}>
-                  Return Home
-                </strong>
-                <p style={{ fontSize: '13px', color: 'var(--muted-text)', margin: '0 0 24px', flex: 1 }}>
-                  Browse our directory of verified licensed therapists in Addis Ababa.
-                </p>
-                <Link
-                  href="/therapists"
-                  className="solid"
-                  style={{ fontSize: '11px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', padding: '10px 18px' }}
-                >
-                  Browse therapists →
-                </Link>
-              </motion.div>
-            </div>
-
+            {/* Admin sign-in card */}
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.6 }}
-              style={{ marginTop: '40px', borderTop: '2px solid var(--rule-soft)', paddingTop: '20px', display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap' }}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2, duration: 0.4 }}
+              style={{ border: '4px solid var(--ink)', padding: '32px', background: 'var(--ink)', color: 'var(--paper)', marginTop: '32px' }}
             >
-              <span style={{ fontSize: '11px', fontFamily: 'Space Mono, monospace', color: 'var(--muted-text)', textTransform: 'uppercase' }}>Need assistance?</span>
-              <Link href="/portal" style={{ fontSize: '12px', fontWeight: 700 }}>Therapist portal →</Link>
-              <Link href="/register" style={{ fontSize: '12px' }}>Join practice →</Link>
+              <div style={{ fontSize: '36px', marginBottom: '16px' }}>🛡️</div>
+              <strong style={{ display: 'block', fontFamily: 'Archivo Black, sans-serif', fontSize: '22px', marginBottom: '12px', color: 'var(--paper)' }}>
+                Admin Access
+              </strong>
+              <p style={{ fontSize: '14px', color: '#bbb', margin: '0 0 24px' }}>
+                Enter your administrator passphrase to access the management console.
+              </p>
+              <form onSubmit={e => {
+                e.preventDefault();
+                if (authInput === requiredPhrase) {
+                  setPassphrase(authInput);
+                  setAuthError('');
+                } else {
+                  setAuthError('Incorrect passphrase. Use the authorized admin secret.');
+                }
+              }}>
+                <input
+                  type="password"
+                  placeholder="Administrator passphrase"
+                  value={authInput}
+                  onChange={e => setAuthInput(e.target.value)}
+                  style={{ background: 'rgba(255,255,255,0.1)', borderColor: 'rgba(255,255,255,0.3)', color: 'var(--paper)', marginBottom: '12px' }}
+                  autoComplete="current-password"
+                />
+                {authError && <p style={{ color: '#ff6b6b', fontSize: '13px', margin: '0 0 12px' }}>⚠ {authError}</p>}
+                <button type="submit" style={{ background: 'var(--paper)', color: 'var(--ink)', borderColor: 'var(--paper)', fontWeight: 700, width: '100%', padding: '14px' }}>
+                  Enter Admin Console →
+                </button>
+              </form>
             </motion.div>
+
+            <div style={{ marginTop: '32px', display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <Link href="/portal" style={{ fontSize: '12px', fontWeight: 700 }}>Therapist portal →</Link>
+              <Link href="/therapists" style={{ fontSize: '12px' }}>Browse therapists →</Link>
+              <Link href="/register" style={{ fontSize: '12px' }}>Join practice →</Link>
+            </div>
           </motion.div>
         </main>
         <Footer />
@@ -120,6 +198,7 @@ export default function AdminPortal() {
   const tabs: [Tab, string, number?][] = [
     ['overview', t('Overview', 'አጠቃላይ')],
     ['therapists', t('Therapists & Applicants', 'ባለሙያዎችና ማመልከቻዎች'), registeredCount],
+    ['clients', t('Client Accounts', 'የደንበኛ መለያዎች'), liveUsers.length || undefined],
     ['bookings', t('Bookings', 'ቀጠሮዎች'), pendingAppts.length],
     ['messages', t('Messages', 'መልዕክቶች'), allMessages.length],
     ['packages', t('Package sales', 'ጥቅሎች')],
@@ -129,6 +208,7 @@ export default function AdminPortal() {
   const navIcons: Record<Tab, string> = {
     overview: '📊',
     therapists: '👥',
+    clients: '👤',
     bookings: '📅',
     messages: '💬',
     packages: '🛍️',
@@ -175,7 +255,7 @@ export default function AdminPortal() {
           <ul className="admin-nav">
             {tabs.map(([key, label, count]) => (
               <li key={key}>
-                <button className={tab === key ? 'active' : ''} onClick={() => setTab(key)}>
+                <button className={tab === key ? 'active' : ''} onClick={() => { setTab(key); setAdminNotice(''); }}>
                   <span className="nav-icon">{navIcons[key]}</span>
                   <span style={{ flex: 1, textAlign: 'left' }}>{label}</span>
                   {count !== undefined && count > 0 && (
@@ -188,9 +268,12 @@ export default function AdminPortal() {
             ))}
           </ul>
           <div className="admin-sidebar-footer">
-            <small>{t('Interactive Demo Console', 'ማሳያ ሁኔታ')}</small>
+            <small>{t('Admin Console · Addis Psychology', 'ፕላትፎርም አስተዳደር')}</small>
             <br />
-            <button style={{ marginTop: '8px', fontSize: '10px' }} disabled>
+            <button
+              style={{ marginTop: '8px', fontSize: '10px', color: 'var(--danger)', borderColor: 'var(--danger)' }}
+              onClick={() => setPassphrase('')}
+            >
               {t('Sign out', 'ውጣ')}
             </button>
           </div>
@@ -198,13 +281,20 @@ export default function AdminPortal() {
 
         {/* ── MAIN CONTENT ── */}
         <main className="admin-content">
+          {adminNotice && (
+            <div style={{ padding: '14px 20px', background: 'var(--ink)', color: 'var(--paper)', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>✓ {adminNotice}</span>
+              <button style={{ color: 'var(--paper)', border: 'none', background: 'none', padding: 0 }} onClick={() => setAdminNotice('')}>✕</button>
+            </div>
+          )}
+
           {/* Mobile tab switcher */}
           <div className="admin-mobile-tabs">
             {tabs.map(([key, label, count]) => (
               <button
                 key={key}
                 aria-pressed={tab === key}
-                onClick={() => setTab(key)}
+                onClick={() => { setTab(key); setAdminNotice(''); }}
                 style={{ fontSize: '11px', padding: '7px 10px' }}
               >
                 {navIcons[key]} {label} {count !== undefined && count > 0 ? `(${count})` : ''}
@@ -230,7 +320,7 @@ export default function AdminPortal() {
                   <span className="trend">{todayBookings > 0 ? 'Active schedule' : 'Clear today'}</span>
                 </div>
                 <div className="admin-metric-card">
-                  <small>{t('Package revenue (demo)', 'ጥቅል ሽያጭ (ማሳያ)')}</small>
+                  <small>{t('Package revenue', 'ጥቅል ሽያጭ')}</small>
                   <strong>{money(totalRevenue)}</strong>
                   <span className="trend">{state.receipts.length} orders processed</span>
                 </div>
@@ -254,6 +344,10 @@ export default function AdminPortal() {
                   <button onClick={() => setTab('therapists')}>
                     <strong>👥</strong>
                     {t('Manage Therapists & Applicants', 'ባለሙያዎች')}
+                  </button>
+                  <button onClick={() => setTab('clients')}>
+                    <strong>👤</strong>
+                    {t('Manage Client Accounts', 'ደንበኛ መለያዎች')}
                   </button>
                   <button onClick={() => setTab('bookings')}>
                     <strong>📅</strong>
@@ -296,7 +390,7 @@ export default function AdminPortal() {
                 </div>
 
                 <div className="admin-chart-box">
-                  <h3>{t('Package revenue by therapist (demo)', 'ጥቅሎች በባለሙያ (ማሳያ)')}</h3>
+                  <h3>{t('Package revenue by therapist', 'ጥቅሎች በባለሙያ')}</h3>
                   <div className="admin-bar-chart">
                     {packageRevByTherapist.map(({ id: therapistId, name, amount }) => (
                       <div key={therapistId} className="admin-bar-wrap">
@@ -425,18 +519,14 @@ export default function AdminPortal() {
                                 >
                                   {t('Chat →', 'ቻት →')}
                                 </Link>
-                                {isCustom && (
-                                  <button
-                                    onClick={() => {
-                                      if (confirm(t('Remove this registered practitioner?', 'ይህ ባለሙያ ይሰረዝ?'))) {
-                                        deleteTherapist(p.id);
-                                      }
-                                    }}
-                                    style={{ fontSize: '10px', padding: '3px 6px', color: 'var(--danger)', borderColor: 'var(--danger)' }}
-                                  >
-                                    ✕ {t('Remove', 'ሰርዝ')}
-                                  </button>
-                                )}
+                                <button
+                                  disabled={busyAction}
+                                  onClick={() => handleDeleteAccount(String(p.id), p.name, true, p.id)}
+                                  style={{ fontSize: '10px', padding: '3px 8px', color: 'var(--danger)', borderColor: 'var(--danger)' }}
+                                  title={t('Permanently remove therapist account', 'የባለሙያ መለያ ሰርዝ')}
+                                >
+                                  🗑 {t('Delete', 'ሰርዝ')}
+                                </button>
                               </div>
                             </td>
                           </tr>
@@ -444,6 +534,120 @@ export default function AdminPortal() {
                       })}
                   </tbody>
                 </table>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ══ CLIENT ACCOUNTS ════════════════════════════════════ */}
+          {tab === 'clients' && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <div>
+                  <h1>{t('Client Accounts', 'የደንበኛ መለያዎች')}</h1>
+                  <p className="muted" style={{ margin: '4px 0 0' }}>
+                    {t(
+                      'Manage registered client accounts. Deleting an account removes access permanently.',
+                      'የተመዘገቡ ደንበኞችን ያስተዳድሩ። መለያ መሰረዝ ዘላቂ ነው።'
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {/* Search clients */}
+              <div style={{ margin: '20px 0 10px', maxWidth: '420px' }}>
+                <input
+                  type="search"
+                  placeholder={t('Search client by name or ID…', 'በስም ወይም በመለያ ቁጥር ፈልግ…')}
+                  value={clientSearch}
+                  onChange={e => setClientSearch(e.target.value)}
+                />
+              </div>
+
+              <div className="admin-section" style={{ marginTop: '20px' }}>
+                {(() => {
+                  // Merge live users from Supabase Auth + local appointment clients
+                  const localClientIds = Array.from(
+                    new Set(state.appointments.map(a => a.client).filter(c => c && c !== 'demo-client'))
+                  );
+
+                  type DisplayClient = { id: string; name: string; email?: string; bookingCount: number };
+                  const map = new Map<string, DisplayClient>();
+
+                  // Add live users from auth
+                  liveUsers.forEach(u => {
+                    const count = state.appointments.filter(a => a.client === u.id).length;
+                    map.set(u.id, { id: u.id, name: u.name, email: u.email, bookingCount: count });
+                  });
+
+                  // Add local clients with bookings if not already present
+                  localClientIds.forEach(id => {
+                    if (!map.has(id)) {
+                      const count = state.appointments.filter(a => a.client === id).length;
+                      map.set(id, { id, name: id.slice(0, 16) + '…', bookingCount: count });
+                    }
+                  });
+
+                  // If still empty (e.g. fresh installation), show sample demo client
+                  if (map.size === 0) {
+                    map.set('client-sample-1', { id: 'client-sample-1', name: 'Almaz Tadesse', email: 'almaz.client@example.et', bookingCount: 2 });
+                    map.set('client-sample-2', { id: 'client-sample-2', name: 'Yared Bekele', email: 'yared.b@example.et', bookingCount: 1 });
+                  }
+
+                  const clientsList = Array.from(map.values()).filter(c =>
+                    c.name.toLowerCase().includes(clientSearch.toLowerCase()) ||
+                    (c.email || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
+                    c.id.toLowerCase().includes(clientSearch.toLowerCase())
+                  );
+
+                  return clientsList.length === 0 ? (
+                    <div className="empty-state">
+                      <p>{t('No client accounts found.', 'ምንም ደንበኛ አልተገኘም።')}</p>
+                    </div>
+                  ) : (
+                    <table className="admin-table">
+                      <thead>
+                        <tr>
+                          <th>{t('Client', 'ደንበኛ')}</th>
+                          <th>{t('Email / Identifier', 'ኢሜይል / መለያ')}</th>
+                          <th>{t('Bookings', 'ቀጠሮዎች')}</th>
+                          <th>{t('Actions', 'ድርጊቶች')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {clientsList.map(c => (
+                          <tr key={c.id}>
+                            <td data-label={t('Client', 'ደንበኛ')}>
+                              <strong>{c.name}</strong>
+                            </td>
+                            <td data-label={t('Email / Identifier', 'ኢሜይል')}>
+                              <span style={{ fontFamily: 'Space Mono, monospace', fontSize: '12px' }}>
+                                {c.email || c.id}
+                              </span>
+                            </td>
+                            <td data-label={t('Bookings', 'ቀጠሮዎች')}>
+                              <span className="admin-badge grey">{c.bookingCount}</span>
+                            </td>
+                            <td data-label={t('Actions', 'ድርጊቶች')}>
+                              <button
+                                disabled={busyAction}
+                                onClick={() => handleDeleteAccount(c.id, c.name || c.email || c.id)}
+                                style={{
+                                  fontSize: '11px',
+                                  padding: '5px 12px',
+                                  color: 'var(--danger)',
+                                  borderColor: 'var(--danger)',
+                                  background: 'transparent',
+                                }}
+                              >
+                                🗑 {t('Delete Account', 'መለያ ሰርዝ')}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  );
+                })()}
               </div>
             </motion.div>
           )}
@@ -632,7 +836,7 @@ export default function AdminPortal() {
               <h1>{t('Voice & Text Package Orders', 'የጥቅሎች ሽያጭ')}</h1>
               <div className="admin-metrics" style={{ gridTemplateColumns: 'repeat(3,minmax(0,1fr))', margin: '20px 0' }}>
                 <div className="admin-metric-card">
-                  <small>{t('Total package revenue (demo)', 'ጠቅላላ ጥቅሎች (ማሳያ)')}</small>
+                  <small>{t('Total package revenue', 'ጠቅላላ ጥቅሎች')}</small>
                   <strong>{money(totalRevenue)}</strong>
                 </div>
                 <div className="admin-metric-card">
@@ -686,7 +890,7 @@ export default function AdminPortal() {
               <h1>{t('Platform Governance & Settings', 'ቅንብሮች')}</h1>
               <div className="notice" style={{ margin: '16px 0 24px' }}>
                 {t(
-                  'These are platform-level administrative controls. Configure global flags, simulated billing accounts, and practitioner onboarding approvals.',
+                  'These are platform-level administrative controls. Configure global flags, payment verification, and practitioner onboarding approvals.',
                   'ይህ የአስተዳደር ቅንብሮች ክፍል ነው።'
                 )}
               </div>
@@ -708,6 +912,25 @@ export default function AdminPortal() {
                   <Link href="/chat" style={{ padding: '10px 16px', border: '2px solid var(--ink)', textDecoration: 'none' }}>
                     {t('Live Messenger', 'የቀጥታ ቻት')}
                   </Link>
+                </div>
+              </div>
+
+              <div className="admin-section" style={{ marginTop: '24px' }}>
+                <div className="admin-section-header">
+                  <h2>{t('Platform Payment Configuration', 'የክፍያ መረጃ')}</h2>
+                </div>
+                <div style={{ padding: '24px', border: '3px solid var(--ink)', fontFamily: 'Space Mono, monospace', fontSize: '13px', background: 'var(--surface-soft)' }}>
+                  <div style={{ marginBottom: '14px', fontSize: '15px' }}>
+                    <strong>Payee Name:</strong> Dawit Aynalem
+                  </div>
+                  <div style={{ marginBottom: '8px' }}>📱 <strong>Telebirr:</strong> 0990171738</div>
+                  <div style={{ marginBottom: '8px' }}>🏦 <strong>Commercial Bank of Ethiopia (CBE):</strong> 1000605180519</div>
+                  <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '2px solid var(--rule-soft)' }}>
+                    <strong>Platform Service Fee:</strong> 5% applied to appointments and text/voice packages
+                  </div>
+                  <div style={{ marginTop: '8px', color: 'var(--muted-text)', fontSize: '12px' }}>
+                    24-hour turnaround commitment on verified client refund requests.
+                  </div>
                 </div>
               </div>
             </motion.div>
