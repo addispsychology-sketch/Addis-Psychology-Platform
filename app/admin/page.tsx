@@ -17,6 +17,32 @@ interface AdminUser {
   name: string;
 }
 
+interface LivePractice {
+  id: number;
+  user_id: string;
+  approved: boolean;
+  profile: {
+    name: string;
+    title: string;
+    bio?: string;
+    specialties?: string[];
+    languages?: string[];
+    priceOnline?: number;
+    priceInPerson?: number;
+  };
+  settings: {
+    online?: number;
+    inperson?: number;
+    presence?: 'available' | 'busy' | 'offline';
+    photo?: string;
+  };
+  application?: {
+    email?: string;
+    phone?: string;
+    license?: string;
+  } | null;
+}
+
 export default function AdminPortal() {
   const { t, people, state, messages, money, date, settings, deleteTherapist } = usePlatform();
   const [passphrase, setPassphrase] = useState('');
@@ -26,6 +52,7 @@ export default function AdminPortal() {
 
   // Live admin data from /api/admin
   const [liveUsers, setLiveUsers] = useState<AdminUser[]>([]);
+  const [livePractices, setLivePractices] = useState<LivePractice[]>([]);
   const [adminNotice, setAdminNotice] = useState('');
   const [busyAction, setBusyAction] = useState(false);
 
@@ -41,8 +68,36 @@ export default function AdminPortal() {
   }
   async function signInAdmin(secret = '') {
     setAuthError('');
-    try { const response = await adminRequest({}, secret); const data = await response.json(); if(!response.ok) throw new Error(data.error || 'Administrator access required.'); setLiveUsers(data.users); setBookings(readBookings(data.appointments || [])); setPassphrase(secret); setAuth(true); }
-    catch(error) { setAuthError(error instanceof Error ? error.message : 'Please try again.'); }
+    try {
+      const response = await adminRequest({}, secret);
+      const data = await response.json();
+      if(!response.ok) throw new Error(data.error || 'Administrator access required.');
+      setLiveUsers(data.users || []);
+      setLivePractices(data.practices || []);
+      setBookings(readBookings(data.appointments || []));
+      setPassphrase(secret);
+      setAuth(true);
+    } catch(error) {
+      setAuthError(error instanceof Error ? error.message : 'Please try again.');
+    }
+  }
+  async function handleApprovePractice(id: number, approve: boolean) {
+    setBusyAction(true);
+    setAdminNotice('');
+    try {
+      const response = await adminRequest({
+        method: 'POST',
+        body: JSON.stringify({ action: 'practice', id, approved: approve })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Failed to update practitioner status.');
+      setLivePractices(current => current.map(p => p.id === id ? { ...p, approved: approve } : p));
+      setAdminNotice(approve ? 'Practitioner approved and published to the public directory!' : 'Practitioner unapproved and hidden from public directory.');
+    } catch (error) {
+      setAdminNotice(error instanceof Error ? error.message : 'Could not update practitioner.');
+    } finally {
+      setBusyAction(false);
+    }
   }
   async function updateAppointment(id: string, patch: Partial<Appointment>) {
     setBusyAction(true); setAdminNotice('');
@@ -158,11 +213,11 @@ export default function AdminPortal() {
   const totalRevenue = state.receipts.reduce((n, r) => n + r.amount, 0);
   const pendingAppts = bookings.filter(a => a.status === 'pending');
   const allMessages = messages;
-  const registeredCount = state.registeredTherapists?.length || 0;
+  const pendingPracticesCount = livePractices.filter(p => !p.approved).length;
 
   const tabs: [Tab, string, number?][] = [
     ['overview', t('Overview', 'አጠቃላይ')],
-    ['therapists', t('Therapists & Applicants', 'ባለሙያዎችና ማመልከቻዎች'), registeredCount],
+    ['therapists', t('Therapists & Applicants', 'ባለሙያዎችና ማመልከቻዎች'), pendingPracticesCount || undefined],
     ['clients', t('Client Accounts', 'የደንበኛ መለያዎች'), liveUsers.length || undefined],
     ['bookings', t('Bookings', 'ቀጠሮዎች'), pendingAppts.length],
     ['messages', t('Messages', 'መልዕክቶች'), allMessages.length],
@@ -413,70 +468,120 @@ export default function AdminPortal() {
                   <thead>
                     <tr>
                       <th>{t('Practitioner', 'ባለሙያ')}</th>
-                      <th>{t('Type / Source', 'ምንጭ')}</th>
-                      <th>{t('Status', 'ሁኔታ')}</th>
+                      <th>{t('Approval Status', 'የማረጋገጫ ሁኔታ')}</th>
+                      <th>{t('Presence', 'ሁኔታ')}</th>
                       <th>{t('Online / In-Person', 'ዋጋ')}</th>
                       <th>{t('Bookings', 'ቀጠሮዎች')}</th>
                       <th>{t('Actions', 'ድርጊቶች')}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {people
+                    {(livePractices.length > 0
+                      ? livePractices.map(lp => ({
+                          id: lp.id,
+                          user_id: lp.user_id,
+                          name: lp.profile?.name || 'Practitioner',
+                          title: lp.profile?.title || 'Therapist',
+                          photo: lp.settings?.photo || '',
+                          online: lp.settings?.online || lp.profile?.priceOnline || 1100,
+                          inperson: lp.settings?.inperson || lp.profile?.priceInPerson || 1500,
+                          presence: lp.settings?.presence || 'offline',
+                          approved: lp.approved,
+                          application: lp.application,
+                        }))
+                      : people.map(p => ({
+                          id: p.id,
+                          user_id: String(p.id),
+                          name: p.name,
+                          title: p.title,
+                          photo: settings(p.id).photo,
+                          online: settings(p.id).online,
+                          inperson: settings(p.id).inperson,
+                          presence: settings(p.id).presence,
+                          approved: !state.registeredTherapists?.some(r => r.id === p.id),
+                          application: null as { email?: string; phone?: string; license?: string } | null,
+                        }))
+                    )
                       .filter(p =>
                         p.name.toLowerCase().includes(therapistSearch.toLowerCase()) ||
-                        p.title.toLowerCase().includes(therapistSearch.toLowerCase())
+                        p.title.toLowerCase().includes(therapistSearch.toLowerCase()) ||
+                        (p.application?.email || '').toLowerCase().includes(therapistSearch.toLowerCase()) ||
+                        (p.application?.phone || '').includes(therapistSearch)
                       )
                       .map(p => {
-                        const ps = settings(p.id);
                         const bCount = bookings.filter(
                           a => a.therapist === p.id && a.status !== 'cancelled'
                         ).length;
-                        const isCustom = state.registeredTherapists?.some(r => r.id === p.id);
 
                         return (
                           <tr key={p.id}>
                             <td data-label={t('Practitioner', 'ባለሙያ')}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <Photo id={p.id} name={p.name} src={ps.photo} />
+                                <Photo id={p.id} name={p.name} src={p.photo} />
                                 <div>
                                   <strong>{p.name}</strong>
                                   <small style={{ display: 'block', color: 'var(--muted-text)' }}>{p.title}</small>
+                                  {p.application && (
+                                    <div style={{ fontSize: '11px', color: 'var(--muted-text)', marginTop: '2px', fontFamily: 'Space Mono, monospace' }}>
+                                      {p.application.email && <span>✉ {p.application.email} </span>}
+                                      {p.application.phone && <span>· ☎ {p.application.phone}</span>}
+                                      {p.application.license && <span style={{ display: 'block' }}>Lic: {p.application.license}</span>}
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             </td>
-                            <td data-label={t('Type / Source', 'ምንጭ')}>
-                              {isCustom ? (
-                                <span className="admin-badge amber">
-                                  {t('Registered Applicant', 'የተመዘገበ አዲስ')}
+                            <td data-label={t('Approval Status', 'የማረጋገጫ ሁኔታ')}>
+                              {p.approved ? (
+                                <span className="admin-badge green">
+                                  ✓ {t('Approved & Live', 'የጸደቀ')}
                                 </span>
                               ) : (
-                                <span className="admin-badge grey">
-                                  {t('Verified Staff', 'መደበኛ')}
+                                <span className="admin-badge amber">
+                                  ⏳ {t('Pending Review', 'በመጠባበቅ ላይ')}
                                 </span>
                               )}
                             </td>
-                            <td data-label={t('Status', 'ሁኔታ')}>
+                            <td data-label={t('Presence', 'ሁኔታ')}>
                               <span
                                 className={`admin-badge ${
-                                  ps.presence === 'available' ? 'green' : ps.presence === 'busy' ? 'amber' : 'grey'
+                                  p.presence === 'available' ? 'green' : p.presence === 'busy' ? 'amber' : 'grey'
                                 }`}
                               >
-                                {ps.presence}
+                                {p.presence}
                               </span>
                             </td>
                             <td data-label={t('Online / In-Person', 'ዋጋ')}>
-                              {money(ps.online)} / {money(ps.inperson)}
+                              {money(p.online)} / {money(p.inperson)}
                             </td>
                             <td data-label={t('Bookings', 'ቀጠሮዎች')}>
                               <strong>{bCount}</strong>
                             </td>
                             <td data-label={t('Actions', 'ድርጊቶች')}>
                               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                {!p.approved ? (
+                                  <button
+                                    className="solid"
+                                    disabled={busyAction}
+                                    onClick={() => void handleApprovePractice(p.id, true)}
+                                    style={{ fontSize: '11px', padding: '6px 12px', background: '#2e7d32', borderColor: '#2e7d32' }}
+                                  >
+                                    ✓ {t('Approve Practice', 'አጽድቅ')}
+                                  </button>
+                                ) : (
+                                  <button
+                                    disabled={busyAction}
+                                    onClick={() => void handleApprovePractice(p.id, false)}
+                                    style={{ fontSize: '10px', padding: '4px 8px', color: 'var(--ink)', borderColor: 'var(--ink)' }}
+                                  >
+                                    {t('Unapprove / Hide', 'ሰርዝ')}
+                                  </button>
+                                )}
                                 <Link
                                   href={`/portal?therapist=${p.id}`}
                                   style={{ fontSize: '11px', fontWeight: 700 }}
                                 >
-                                  {t('Open Portal →', 'ፖርታል →')}
+                                  {t('Portal →', 'ፖርታል →')}
                                 </Link>
                                 <Link
                                   href={`/chat?therapist=${p.id}`}
@@ -486,7 +591,7 @@ export default function AdminPortal() {
                                 </Link>
                                 <button
                                   disabled={busyAction}
-                                  onClick={() => handleDeleteAccount(String(p.id), p.name, true, p.id)}
+                                  onClick={() => handleDeleteAccount(p.user_id, p.name, true, p.id)}
                                   style={{ fontSize: '10px', padding: '3px 8px', color: 'var(--danger)', borderColor: 'var(--danger)' }}
                                   title={t('Permanently remove therapist account', 'የባለሙያ መለያ ሰርዝ')}
                                 >

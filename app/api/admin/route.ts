@@ -4,9 +4,23 @@ export async function GET(request: Request) {
  try {
   const {db}=await authorizeAdmin(request);
   const page=Math.max(1,Math.min(1000,Number(new URL(request.url).searchParams.get('page'))||1));
-  const [users,practices,payments,refunds,requests,statuses,appointments]=await Promise.all([db.auth.admin.listUsers({page,perPage:100}),db.from('practitioners').select('*').limit(500),db.from('payment_requests').select('*').order('created_at',{ascending:false}).limit(200),db.from('refund_requests').select('*').order('requested_at',{ascending:false}).limit(200),db.from('appointment_requests').select('*').eq('status','pending').limit(200),db.from('account_status').select('*').limit(500),db.from('appointments').select('*').order('starts_at',{ascending:false}).limit(500)]);
-  if([users,practices,payments,refunds,requests,statuses,appointments].some(x=>x.error)) throw new Error('Administration data unavailable.');
-  return Response.json({users:users.data.users.map(u=>({id:u.id,email:u.email,name:typeof u.user_metadata.full_name==='string'?u.user_metadata.full_name:'Member'})),practices:practices.data,payments:payments.data,refunds:refunds.data,requests:requests.data,statuses:statuses.data,appointments:appointments.data,page},{headers:{'Cache-Control':'no-store'}});
+  const [users,practices,applications,payments,refunds,requests,statuses,appointments]=await Promise.all([
+    db.auth.admin.listUsers({page,perPage:100}),
+    db.from('practitioners').select('*').limit(500),
+    db.from('practice_applications').select('*').limit(500),
+    db.from('payment_requests').select('*').order('created_at',{ascending:false}).limit(200),
+    db.from('refund_requests').select('*').order('requested_at',{ascending:false}).limit(200),
+    db.from('appointment_requests').select('*').eq('status','pending').limit(200),
+    db.from('account_status').select('*').limit(500),
+    db.from('appointments').select('*').order('starts_at',{ascending:false}).limit(500)
+  ]);
+  if([users,practices,applications,payments,refunds,requests,statuses,appointments].some(x=>x.error)) throw new Error('Administration data unavailable.');
+  const appMap = new Map((applications.data || []).map(a => [a.user_id, a]));
+  const mergedPractices = (practices.data || []).map(p => ({
+    ...p,
+    application: appMap.get(p.user_id) || null
+  }));
+  return Response.json({users:users.data.users.map(u=>({id:u.id,email:u.email,name:typeof u.user_metadata.full_name==='string'?u.user_metadata.full_name:'Member'})),practices:mergedPractices,payments:payments.data,refunds:refunds.data,requests:requests.data,statuses:statuses.data,appointments:appointments.data,page},{headers:{'Cache-Control':'no-store'}});
  }catch(error){return apiError(error)}
 }
 export async function POST(request: Request) {
