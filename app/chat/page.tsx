@@ -7,6 +7,7 @@ import { usePlatform } from '@/components/Platform';
 import PrivateAudio from '@/components/PrivateAudio';
 import { createVoiceRecorder } from '@/lib/voice';
 import { requestCall } from '@/components/AudioCalls';
+import { therapistAvailability } from '@/lib/presence';
 import { Mic, Send } from 'lucide-react';
 import { Photo, Modal, Page } from '@/components/Shell';
 import { bundles, discountedPrice, formatVoiceTime } from '@/lib/commerce';
@@ -29,6 +30,7 @@ function TrueFullscreenChat() {
   const [chosenId, setSelectedId] = useState<number | null>(null);
   const selectedId = chosenId ?? (people.some(p => p.id === initialId) ? initialId : people[0]?.id ?? initialId);
   const [showMobileList, setShowMobileList] = useState(!params.get('therapist'));
+  const [onlineOnly, setOnlineOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [inputText, setInputText] = useState('');
   const [isHoldingVoice, setIsHoldingVoice] = useState(false);
@@ -67,19 +69,7 @@ function TrueFullscreenChat() {
   }, []);
 
   function getTherapistAvailability(therapistId: number) {
-    const ps = settings(therapistId);
-    const local = new Date(clock + 3 * 60 * 60 * 1000);
-    const day = local.getUTCDay();
-    const minute = local.getUTCHours() * 60 + local.getUTCMinutes();
-    const toMinutes = (value: string) => { const [h, m] = value.split(':').map(Number); return h * 60 + m; };
-    const start = toMinutes(ps.chatStart);
-    const end = toMinutes(ps.chatEnd);
-    const overnight = end < start;
-    const inWindow = overnight
-      ? (ps.chatDays.includes(day) && minute >= start) || (ps.chatDays.includes((day + 6) % 7) && minute < end)
-      : ps.chatDays.includes(day) && minute >= start && minute < end;
-    const isOnline = ps.presence !== 'offline' && inWindow;
-    return { isOnline, minsLeft: isOnline ? (end - minute + 1440) % 1440 : 0, start: ps.chatStart, end: ps.chatEnd };
+    return therapistAvailability(settings(therapistId), clock);
   }
   const { isOnline: isAvailableNow, minsLeft: minutesUntilOffline } = getTherapistAvailability(selectedId);
 
@@ -119,7 +109,7 @@ function TrueFullscreenChat() {
     if (!credits.voiceSeconds) {
       pointerHeld.current = false;
       setErrorMessage(t('No voice credits remaining. Add a package to send audio.', 'የድምፅ ክሬዲት አልቋል። ጥቅል ይግዙ።'));
-      setErrorMessage('Messaging is available without prepaid credits. Each voice file can be up to 100 MB.');
+      setQuickPackageModal(true);
       return;
     }
 
@@ -328,7 +318,7 @@ function TrueFullscreenChat() {
       <div className={`chat-workspace-grid ${showMobileList ? 'mobile-show-sidebar' : ''}`}>
 
         {/* ── LEFT: CONVERSATION LIST (SIDEBAR) ── */}
-        <aside className="chat-native-sidebar">
+        <aside className="chat-native-sidebar"><div className="chat-list-intro"><span className="eyebrow">YOUR SPACE TO CONNECT</span><h1>Let’s talk.</h1><p>{people.filter(p => getTherapistAvailability(p.id).isOnline).length} therapists available now. Choose someone to start a conversation.</p></div><div className="chat-list-filters"><button aria-pressed={!onlineOnly} onClick={() => setOnlineOnly(false)}>All therapists</button><button aria-pressed={onlineOnly} onClick={() => setOnlineOnly(true)}>Online now</button></div>
           {/* Sidebar Top: Search & discreet exit link */}
           <div className="native-sidebar-header">
             <input
@@ -347,9 +337,10 @@ function TrueFullscreenChat() {
             </Link>
           </div>
 
-          <div className="native-contacts-scroll">
+          <div className="native-contacts-scroll">{!people.some(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()) && (!onlineOnly || getTherapistAvailability(p.id).isOnline)) && <div className="care-empty"><h3>{onlineOnly ? "No one is online just now." : "No matching therapists."}</h3><p>You can leave a message for a later reply.</p><button className="care-back" onClick={() => { setOnlineOnly(false); setSearchQuery(''); }}>See all therapists</button></div>}
             {people
-              .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+              .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()) && (!onlineOnly || getTherapistAvailability(p.id).isOnline))
+              .sort((a,b) => Number(getTherapistAvailability(b.id).isOnline) - Number(getTherapistAvailability(a.id).isOnline))
               .map(p => {
                 const isSelected = p.id === selectedId;
                 const avail = getTherapistAvailability(p.id);

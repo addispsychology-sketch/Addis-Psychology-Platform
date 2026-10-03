@@ -4,15 +4,23 @@ export async function GET(request: Request) {
  try {
   const {db}=await authorizeAdmin(request);
   const page=Math.max(1,Math.min(1000,Number(new URL(request.url).searchParams.get('page'))||1));
-  const [users,practices,payments,refunds,requests,statuses]=await Promise.all([db.auth.admin.listUsers({page,perPage:100}),db.from('practitioners').select('*').limit(500),db.from('payment_requests').select('*').order('created_at',{ascending:false}).limit(200),db.from('refund_requests').select('*').order('requested_at',{ascending:false}).limit(200),db.from('appointment_requests').select('*').eq('status','pending').limit(200),db.from('account_status').select('*').limit(500)]);
-  if([users,practices,payments,refunds,requests,statuses].some(x=>x.error)) throw new Error('Administration data unavailable.');
-  return Response.json({users:users.data.users.map(u=>({id:u.id,email:u.email,name:typeof u.user_metadata.full_name==='string'?u.user_metadata.full_name:'Member'})),practices:practices.data,payments:payments.data,refunds:refunds.data,requests:requests.data,statuses:statuses.data,page},{headers:{'Cache-Control':'no-store'}});
+  const [users,practices,payments,refunds,requests,statuses,appointments]=await Promise.all([db.auth.admin.listUsers({page,perPage:100}),db.from('practitioners').select('*').limit(500),db.from('payment_requests').select('*').order('created_at',{ascending:false}).limit(200),db.from('refund_requests').select('*').order('requested_at',{ascending:false}).limit(200),db.from('appointment_requests').select('*').eq('status','pending').limit(200),db.from('account_status').select('*').limit(500),db.from('appointments').select('*').order('starts_at',{ascending:false}).limit(500)]);
+  if([users,practices,payments,refunds,requests,statuses,appointments].some(x=>x.error)) throw new Error('Administration data unavailable.');
+  return Response.json({users:users.data.users.map(u=>({id:u.id,email:u.email,name:typeof u.user_metadata.full_name==='string'?u.user_metadata.full_name:'Member'})),practices:practices.data,payments:payments.data,refunds:refunds.data,requests:requests.data,statuses:statuses.data,appointments:appointments.data,page},{headers:{'Cache-Control':'no-store'}});
  }catch(error){return apiError(error)}
 }
 export async function POST(request: Request) {
  try {
   const {db,user}=await authorizeAdmin(request); const input=await request.json();
-  if(input.action==='payment') {
+  if(input.action==='booking') {
+   if(!['confirmed','cancelled','completed'].includes(input.status)) throw new Error('Invalid booking status.');
+   const {data:appointment,error:readError}=await db.from('appointments').select('id,status,starts_at').eq('id',input.id).single();
+   if(readError || !appointment || ['cancelled','completed'].includes(appointment.status)) throw new Error('This booking is unavailable or already closed.');
+   if(input.status==='confirmed' && (appointment.status!=='pending' || Date.parse(appointment.starts_at)<=Date.now())) throw new Error('Only a future pending request can be confirmed.');
+   if(input.status==='completed' && (appointment.status!=='confirmed' || Date.parse(appointment.starts_at)>Date.now())) throw new Error('Only a confirmed session that has started can be completed.');
+   const {data:updated,error}=await db.from('appointments').update({status:input.status}).eq('id',input.id).eq('status',appointment.status).select('id');
+   if(error || !updated?.length) throw new Error('Booking changed. Refresh and try again.');
+  } else if(input.action==='payment') {
    if(input.verified!==true) throw new Error('Verify the amount, recipient and reference in your bank account first.');
    const {error}=await db.rpc('review_payment',{request_id:input.id,actor:user.id,approve:input.approve===true});if(error)throw new Error(error.message);
   } else if(input.action==='refund') {

@@ -1,5 +1,6 @@
 'use client';
 
+import { therapistAvailability } from '@/lib/presence';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -12,15 +13,16 @@ export default function OnlineTherapistPopup() {
   const { t, people, settings } = usePlatform();
 
   const [visible, setVisible] = useState(false);
-  const [minimized, setMinimized] = useState(false);
+  const [minimized, setMinimized] = useState(true);
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => { const timer = setInterval(() => setClock(Date.now()), 15000); return () => clearInterval(timer); }, []);
 
   // Find an available therapist
-  const availableTherapist = people.find(p => settings(p.id).presence === 'available');
+  const availableTherapist = people.find(p => therapistAvailability(settings(p.id), clock).isOnline);
 
   useEffect(() => {
     // Only display after 2.5 seconds if not on chat page
     if ((pathname === '/chat' || pathname === '/portal' || pathname === '/admin')) {
-      setVisible(false);
       return;
     }
 
@@ -31,7 +33,7 @@ export default function OnlineTherapistPopup() {
     return () => clearTimeout(timer);
   }, [pathname]);
 
-  if (pathname === '/chat' || !availableTherapist) {
+  if (['/chat','/portal','/admin','/account','/packages','/wallet','/register'].includes(pathname) || pathname.startsWith('/terms') || !availableTherapist) {
     return null;
   }
 

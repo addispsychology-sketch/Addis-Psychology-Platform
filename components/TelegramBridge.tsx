@@ -21,7 +21,7 @@ export default function TelegramBridge() {
       try {
         const session = (await getSupabase()?.auth.getSession())?.data.session;
         if (!session) {
-          const result = await telegramSignIn(false, false);
+          const result = await telegramSignIn(false, true);
           if (result.needsAccount && alive) setNotice('needs-account');
         }
         // start_param is navigation only. Authentication always uses server-verified initData.

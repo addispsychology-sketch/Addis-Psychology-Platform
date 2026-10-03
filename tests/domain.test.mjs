@@ -84,3 +84,24 @@ test('notification email escapes user names, content, and rejects unsafe links',
  assert.ok(result.html.includes('&lt;script&gt;bad&lt;/script&gt;'));
  assert.throws(() => emailTemplates.renderAnnouncementEmail({ title: 'Hello', message: 'Hi', actionText: 'Open', actionUrl: 'javascript:alert(1)' }));
 });
+
+const { therapistAvailability } = await import('data:text/javascript,' + encodeURIComponent(stripTypeScriptTypes(readFileSync(new URL('../lib/presence.ts', import.meta.url), 'utf8'))));
+test('online presence requires available status and Addis working hours, including overnight shifts', () => {
+ const settings = { presence: 'available', chatDays: [1], chatStart: '09:00', chatEnd: '17:00' };
+ assert.equal(therapistAvailability(settings, Date.parse('2026-10-05T06:00:00Z')).isOnline, true);
+ assert.equal(therapistAvailability({...settings,presence:'busy'}, Date.parse('2026-10-05T06:00:00Z')).isOnline, false);
+ assert.equal(therapistAvailability({...settings,presence:'offline'}, Date.parse('2026-10-05T06:00:00Z')).isOnline, false);
+ assert.equal(therapistAvailability(settings, Date.parse('2026-10-05T14:00:00Z')).isOnline, false);
+ assert.equal(therapistAvailability({...settings,chatStart:'22:00',chatEnd:'02:00'}, Date.parse('2026-10-05T22:00:00Z')).isOnline, true);
+});
+test('auth email preserves provider tokens and routes through explicit confirmation without unsafe interpolation', () => {
+ const confirmation = emailTemplates.renderEmailConfirmationTemplate('https://example.com/auth/confirm?token_hash={{ .TokenHash }}&type=email', '<script>alert(1)</script>');
+ assert.ok(confirmation.includes('{{ .Token }}'));
+ assert.ok(confirmation.includes('token_hash={{ .TokenHash }}&amp;type=email'));
+ assert.ok(!confirmation.includes('<script>'));
+ assert.ok(confirmation.includes('width="100%"'));
+ const recovery = emailTemplates.renderPasswordResetTemplate('https://example.com/auth/confirm?token_hash={{ .TokenHash }}&type=recovery');
+ assert.ok(recovery.includes('Choose a new password'));
+ assert.ok(!recovery.includes('{{ .Token }}'));
+ assert.throws(() => emailTemplates.renderPasswordResetTemplate('javascript:alert(1)'));
+});

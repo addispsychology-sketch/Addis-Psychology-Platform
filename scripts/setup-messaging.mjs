@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import nodemailer from 'nodemailer';
 
@@ -46,16 +47,24 @@ export async function verifyEmail(env) {
   const config = integrationConfig(env);
   const smtp = nodemailer.createTransport({ host:config.SMTP_HOST, port:Number(config.SMTP_PORT), secure:config.SMTP_PORT==='465', requireTLS:config.SMTP_PORT!=='465', auth:{user:config.SMTP_USER,pass:config.SMTP_PASSWORD}, connectionTimeout:10000, socketTimeout:10000 });
   try { await smtp.verify(); return 'SMTP authentication verified. No email was sent.'; }
-  catch { throw new Error('SMTP sign-in failed. For Gmail, use a Google app password with 2-Step Verification enabled.'); }
+  catch (error) { throw new Error(error.code === 'EAUTH' ? 'SMTP credentials were rejected. For Gmail, use a valid app password with 2-Step Verification enabled.' : 'SMTP connection could not be verified (' + (error.code || 'connection error') + '). Check network access and SMTP settings.'); }
   finally { smtp.close(); }
 }
 
 export async function configureAuthEmail(env, request = fetch) {
   const config = integrationConfig(env);
   if (!config.SUPABASE_ACCESS_TOKEN || !config.SUPABASE_PROJECT_ID) throw new Error('Supabase management access is needed to connect sign-up emails. Appointment SMTP is separate.');
-  const response = await request(`https://api.supabase.com/v1/projects/${config.SUPABASE_PROJECT_ID}/config/auth`, {
+  const endpoint = `https://api.supabase.com/v1/projects/${config.SUPABASE_PROJECT_ID}/config/auth`;
+  const currentResponse = await request(endpoint, { headers: { Authorization: `Bearer ${config.SUPABASE_ACCESS_TOKEN}` }, signal: AbortSignal.timeout(20000) });
+  if (!currentResponse.ok) throw new Error('Could not read existing authentication settings. No settings changed.');
+  const current = await currentResponse.json();
+  const redirects = new Set((current.uri_allow_list || '').split(',').map(s => s.trim()).filter(Boolean));
+  redirects.add(config.APP_URL + '/account');
+  redirects.add(config.APP_URL + '/account?flow=recovery');
+  const templates = Object.fromEntries(['confirmation', 'recovery', 'email_change'].map(name => ['mailer_templates_' + name + '_content', readFileSync(new URL('../supabase/templates/' + name + '.html', import.meta.url), 'utf8').replace(/https?:\/\/[^/"]+\/auth\/confirm\?/g, config.APP_URL + '/auth/confirm?')]));
+  const response = await request(endpoint, {
     method:'PATCH', headers:{Authorization:`Bearer ${config.SUPABASE_ACCESS_TOKEN}`,'Content-Type':'application/json'},
-    body:JSON.stringify({ smtp_host:config.SMTP_HOST,smtp_port:config.SMTP_PORT,smtp_user:config.SMTP_USER,smtp_pass:config.SMTP_PASSWORD,smtp_admin_email:config.SMTP_USER,smtp_sender_name:'Addis Psychology',mailer_autoconfirm:false }),
+    body:JSON.stringify({ ...templates, uri_allow_list:[...redirects].join(','), mailer_subjects_confirmation:'You’re almost in · Addis Psychology', mailer_subjects_recovery:'A fresh start · Reset your Addis password', mailer_subjects_email_change:'Confirm your email · Addis Psychology', smtp_host:config.SMTP_HOST,smtp_port:config.SMTP_PORT,smtp_user:config.SMTP_USER,smtp_pass:config.SMTP_PASSWORD,smtp_admin_email:config.SMTP_USER,smtp_sender_name:'Addis Psychology',mailer_autoconfirm:false }),
     signal:AbortSignal.timeout(20000),
   });
   if (!response.ok) throw new Error('Supabase email setup failed. Check management permissions; no secret values were printed.');

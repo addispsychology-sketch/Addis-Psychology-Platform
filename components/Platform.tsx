@@ -124,7 +124,7 @@ type API = {
   clear: () => void;
 };
 
-const Context = createContext<API | null>(null);
+export const Context = createContext<API | null>(null);
 
 export function Platform({ children }: { children: ReactNode }) {
   const cloud = useMessaging();

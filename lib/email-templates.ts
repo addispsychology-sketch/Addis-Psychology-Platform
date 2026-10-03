@@ -6,7 +6,7 @@ function safeLink(value: string): string {
   if (value === '{{ .ConfirmationURL }}') return value;
   const url = new URL(value);
   if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('Unsupported email link.');
-  return escapeHtml(url.href);
+  return escapeHtml(value);
 }
 
 /**
@@ -393,106 +393,25 @@ export function renderRawBlockEmail({
  * Renders the OTP Confirmation Email template.
  * Supabase now sends a 6-digit OTP code instead of a magic link.
  */
-export function renderEmailConfirmationTemplate(confirmUrl = '{{ .ConfirmationURL }}', name = ''): string {
-  // Extract OTP from URL if available, otherwise show the button flow
-  const greeting = name ? `Welcome, ${name}.` : 'Welcome aboard.';
-
-  return renderRawBlockEmail({
-    eyebrow: '01 / ACCOUNT CONFIRMATION',
-    title: 'You\'re almost in.',
-    subtitle: greeting,
-    accentColor: '#000000',
-    bodyHtml: `
-      <p class="body-copy">
-        Thank you for joining Addis Psychology — a confidential space for mental wellness in Addis Ababa.
-        One quick step to activate your account: confirm your email address below.
-      </p>
-
-      <div class="otp-block">
-        <p class="otp-label">🔐 Your Verification Code</p>
-        <p class="otp-code">{{ .Token }}</p>
-        <p class="otp-expiry">Valid for 60 minutes · Do not share this code with anyone</p>
-      </div>
-
-      <p class="body-copy" style="font-size:14px;color:#666666;">
-        Or click the button below to confirm automatically:
-      </p>
-
-      <table role="presentation" width="100%" style="margin:0 0 24px;">
-        <tr>
-          <td>
-            <a href="${safeLink(confirmUrl)}" class="btn-solid" target="_blank">Confirm My Email &rarr;</a>
-          </td>
-        </tr>
-      </table>
-
-      <div class="info-card">
-        <p class="info-card-title">🛡️ Your Privacy &amp; Security</p>
-        <p class="info-card-body">
-          Your identity, appointments, and conversations are protected.
-          Never share this verification code with anyone — our team will never ask for it.
-          If you didn't create an account, you can safely ignore this email.
-        </p>
-      </div>
-
-      <div style="height:1px;background:#eeeeee;margin:28px 0;"></div>
-
-      <table role="presentation" width="100%" style="margin-bottom:8px;">
-        <tr>
-          <td style="width:33%;padding:16px 8px 16px 0;border-right:2px solid #eeeeee;text-align:center;vertical-align:top;">
-            <span style="font-size:28px;display:block;margin-bottom:8px;">💬</span>
-            <span style="font-size:12px;font-weight:700;display:block;text-transform:uppercase;letter-spacing:0.5px;">Private Chat</span>
-            <span style="font-size:11px;color:#888888;">Text &amp; voice sessions</span>
-          </td>
-          <td style="width:33%;padding:16px;border-right:2px solid #eeeeee;text-align:center;vertical-align:top;">
-            <span style="font-size:28px;display:block;margin-bottom:8px;">📅</span>
-            <span style="font-size:12px;font-weight:700;display:block;text-transform:uppercase;letter-spacing:0.5px;">Appointments</span>
-            <span style="font-size:11px;color:#888888;">Book live sessions</span>
-          </td>
-          <td style="width:33%;padding:16px 0 16px 8px;text-align:center;vertical-align:top;">
-            <span style="font-size:28px;display:block;margin-bottom:8px;">🔒</span>
-            <span style="font-size:12px;font-weight:700;display:block;text-transform:uppercase;letter-spacing:0.5px;">Confidential</span>
-            <span style="font-size:11px;color:#888888;">Your data is safe</span>
-          </td>
-        </tr>
-      </table>
-    `,
-    footerNote: 'If you did not create an Addis Psychology account, please ignore this email.',
-  });
+export function renderAuthEmail({ title, preheader, copy, action, url, code = false }: { title: string; preheader: string; copy: string; action: string; url: string; code?: boolean }): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>${escapeHtml(title)}</title><style>@media(max-width:600px){.email-shell{width:100%!important}.email-pad{padding:28px 22px!important}.email-title{font-size:34px!important}}</style></head>
+  <body style="margin:0;padding:0;background:#f2f0e9;color:#20231e;font-family:Arial,Helvetica,sans-serif"><div style="display:none;max-height:0;overflow:hidden;opacity:0">${escapeHtml(preheader)}</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f2f0e9"><tr><td align="center" style="padding:28px 12px"><table class="email-shell" role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;border:2px solid #20231e;background:#fffef9">
+  <tr><td class="email-pad" style="padding:28px 36px;border-bottom:2px solid #20231e"><table role="presentation" width="100%"><tr><td style="font-size:18px;font-weight:bold;letter-spacing:-.5px">ADDIS<br>PSYCHOLOGY<span style="color:#657458">.</span></td><td align="right" style="font-size:10px;letter-spacing:1px;color:#657458">A LITTLE SPACE.<br>JUST FOR YOU.</td></tr></table></td></tr>
+  <tr><td class="email-pad" style="padding:38px 36px;background:#e9eedf"><p style="font-family:Courier New,monospace;font-size:10px;letter-spacing:2px;margin:0 0 18px">YOUR ACCOUNT / ONE SIMPLE STEP</p><h1 class="email-title" style="font-size:42px;line-height:1.05;letter-spacing:-1.8px;margin:0;font-weight:900">${escapeHtml(title)}</h1></td></tr>
+  <tr><td class="email-pad" style="padding:32px 36px"><p style="font-size:16px;line-height:1.7;margin:0 0 24px;color:#4e554b">${escapeHtml(copy)}</p>
+  ${code ? '<table role="presentation" width="100%" style="border:1px solid #bdc6b5;background:#f4f6ef;margin:0 0 24px"><tr><td align="center" style="padding:22px"><p style="font-size:10px;letter-spacing:1.5px;margin:0 0 12px">YOUR ONE-TIME CODE</p><p style="font-family:Courier New,monospace;font-size:34px;font-weight:bold;letter-spacing:6px;margin:0">{{ .Token }}</p><p style="font-size:12px;color:#606857;margin:12px 0 0">Enter this on the confirmation screen.</p></td></tr></table>' : ''}
+  <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td align="center" bgcolor="#20231e" style="border:2px solid #20231e"><a href="${safeLink(url)}" style="display:block;padding:18px 22px;color:#fffef9;font-size:15px;font-weight:bold;text-decoration:none">${escapeHtml(action)} &rarr;</a></td></tr></table>
+  <p style="font-size:12px;line-height:1.7;color:#6c7267;margin:20px 0 0">This link can be used once. If it has expired, request a fresh email from your account screen. Never share your code or forward this email.</p>
+  <div style="border-top:1px solid #dedfd6;margin-top:28px;padding-top:22px"><strong style="font-size:13px">You’re in control.</strong><p style="font-size:13px;line-height:1.7;color:#6c7267;margin:8px 0 0">If you didn’t request this, you can ignore this email. Your password stays unchanged.</p></div></td></tr>
+  <tr><td class="email-pad" style="padding:24px 36px;border-top:1px solid #dedfd6;background:#f7f7f0;font-size:11px;line-height:1.8;color:#6c7267"><strong style="color:#20231e">ADDIS PSYCHOLOGY</strong><br>Space to connect. Care at your pace.<br>We never include your therapy messages in email.<br><a href="mailto:addispsychology@gmail.com" style="color:#20231e">Need a hand? Contact us</a></td></tr>
+  </table></td></tr></table></body></html>`;
 }
-
-/**
- * Renders the Password Reset Email template
- */
+export function renderEmailConfirmationTemplate(confirmUrl = '{{ .ConfirmationURL }}', name = ''): string {
+  return renderAuthEmail({ title: 'You’re almost in.', preheader: 'Confirm your email and take your next step with Addis Psychology.', copy: (name ? 'Welcome, ' + name + '. ' : 'Welcome to Addis Psychology. ') + 'Confirm your email to get started. Use the code below, or open the button on the device where you want to sign in.', action: 'Confirm my email', url: confirmUrl, code: true });
+}
 export function renderPasswordResetTemplate(resetUrl = '{{ .ConfirmationURL }}'): string {
-  return renderRawBlockEmail({
-    eyebrow: 'SECURITY / ACCOUNT RECOVERY',
-    title: 'Reset your password.',
-    subtitle: 'A password reset was requested for your account.',
-    accentColor: '#000000',
-    bodyHtml: `
-      <p class="body-copy">
-        We received a request to reset the password for your Addis Psychology account.
-        Click the button below to set a new password. This link expires in 1 hour for your security.
-      </p>
-
-      <div class="info-card" style="border-color:#cc0000;">
-        <p class="info-card-title">⚠️ Didn't request this?</p>
-        <p class="info-card-body">
-          If you didn't ask to reset your password, your account may be at risk.
-          You can safely ignore this email — your existing password remains unchanged.
-          Consider updating your password and enabling Telegram notifications for security alerts.
-        </p>
-      </div>
-
-      <p class="body-copy" style="font-size:13px;color:#666666;">
-        For your security, never forward this email to anyone else. Our support team will never ask for your password.
-      </p>
-    `,
-    ctaText: 'Reset My Password',
-    ctaUrl: resetUrl,
-    footerNote: 'This link expires in 1 hour. For security reasons, never share this link.',
-  });
+  return renderAuthEmail({ title: 'A fresh start.', preheader: 'Set a new password for your Addis Psychology account.', copy: 'Forgot your password? It happens. Follow the secure link below to choose a new one and return to your space.', action: 'Choose a new password', url: resetUrl });
 }
 
 /**

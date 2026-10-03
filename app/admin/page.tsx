@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { getSupabase } from '@/lib/supabase';
+import type { Appointment } from '@/components/Platform';
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePlatform, statusLabel } from '@/components/Platform';
 import { Header, Footer, Photo } from '@/components/Shell';
@@ -16,7 +18,7 @@ interface AdminUser {
 }
 
 export default function AdminPortal() {
-  const { t, people, state, messages, money, date, settings, updateAppointment, deleteTherapist } = usePlatform();
+  const { t, people, state, messages, money, date, settings, deleteTherapist } = usePlatform();
   const [passphrase, setPassphrase] = useState('');
   const [authInput, setAuthInput] = useState('');
   const [authError, setAuthError] = useState('');
@@ -28,36 +30,32 @@ export default function AdminPortal() {
   const [busyAction, setBusyAction] = useState(false);
 
   // Default passphrase for demonstration. Set NEXT_PUBLIC_ADMIN_PASSPHRASE env var in production.
-  const requiredPhrase = process.env.NEXT_PUBLIC_ADMIN_PASSPHRASE || 'addis-admin-2026';
-  const auth = passphrase !== '' && passphrase === requiredPhrase;
+  const [auth, setAuth] = useState(false);
+  const [bookings, setBookings] = useState<Appointment[]>([]);
+  async function adminRequest(init: RequestInit = {}, secret = passphrase) {
+    const token = (await getSupabase()?.auth.getSession())?.data.session?.access_token;
+    return fetch('/api/admin', { ...init, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(secret ? { 'x-admin-passphrase': secret } : {}), ...init.headers } });
+  }
+  function readBookings(rows: Record<string, unknown>[]) {
+    return rows.map(a => { const local = new Date(Date.parse(String(a.starts_at)) + 10800000).toISOString(); return { id: String(a.id), therapist: Number(a.therapist_id), date: local.slice(0,10), time: local.slice(11,16), medium: a.medium, status: a.status, price: a.price, client: a.client_name, phone: a.phone, language: a.language } as Appointment; });
+  }
+  async function signInAdmin(secret = '') {
+    setAuthError('');
+    try { const response = await adminRequest({}, secret); const data = await response.json(); if(!response.ok) throw new Error(data.error || 'Administrator access required.'); setLiveUsers(data.users); setBookings(readBookings(data.appointments || [])); setPassphrase(secret); setAuth(true); }
+    catch(error) { setAuthError(error instanceof Error ? error.message : 'Please try again.'); }
+  }
+  async function updateAppointment(id: string, patch: Partial<Appointment>) {
+    setBusyAction(true); setAdminNotice('');
+    try { const response = await adminRequest({ method: 'POST', body: JSON.stringify({action:'booking',id,status:patch.status}) }); const result = await response.json(); if(!response.ok) throw new Error(result.error); setBookings(rows => rows.map(a => a.id === id ? {...a,...patch} : a)); setAdminNotice('Booking updated. The client can see the new status.'); }
+    catch(error) { setAdminNotice(error instanceof Error ? error.message : 'Could not update booking.'); }
+    finally { setBusyAction(false); }
+  }
 
   // Booking filters & search
   const [bookingFilter, setBookingFilter] = useState<'all' | 'pending' | 'confirmed' | 'cancelled' | 'completed'>('all');
   const [bookingSearch, setBookingSearch] = useState('');
   const [therapistSearch, setTherapistSearch] = useState('');
   const [clientSearch, setClientSearch] = useState('');
-
-  // Fetch admin data when authenticated
-  useEffect(() => {
-    if (!auth) return;
-    let alive = true;
-    fetch('/api/admin', {
-      headers: {
-        'x-admin-passphrase': passphrase,
-      },
-    })
-      .then(res => (res.ok ? res.json() : null))
-      .then(data => {
-        if (alive && data?.users) {
-          setLiveUsers(data.users);
-        }
-      })
-      .catch(() => {});
-
-    return () => {
-      alive = false;
-    };
-  }, [auth, passphrase]);
 
   async function handleDeleteAccount(userId: string, label: string, isTherapist = false, therapistId?: number) {
     if (!confirm(t(
@@ -70,42 +68,14 @@ export default function AdminPortal() {
     setBusyAction(true);
     setAdminNotice('');
     try {
-      const res = await fetch('/api/admin', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-passphrase': passphrase,
-        },
-        body: JSON.stringify({
-          action: 'delete',
-          id: userId,
-          confirmation: 'DELETE',
-        }),
-      });
-
+      const res = await adminRequest({ method: 'POST', body: JSON.stringify({ action: 'delete', id: userId, confirmation: 'DELETE' }) });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        // Fallback for local demo state
-        if (isTherapist && therapistId) {
-          deleteTherapist(therapistId);
-          setAdminNotice(t('Practitioner removed from directory.', 'ባለሙያው ከዝርዝሩ ተሰርዟል።'));
-        } else {
-          setLiveUsers(prev => prev.filter(u => u.id !== userId));
-          setAdminNotice(t(`Account "${label}" removed.`, `መለያ ተሰርዟል።`));
-        }
-      } else {
-        if (isTherapist && therapistId) {
-          deleteTherapist(therapistId);
-        }
-        setLiveUsers(prev => prev.filter(u => u.id !== userId));
-        setAdminNotice(t(`Account "${label}" successfully deleted.`, `መለያው በተሳካ ሁኔታ ተሰርዟል።`));
-      }
-    } catch {
-      if (isTherapist && therapistId) {
-        deleteTherapist(therapistId);
-      }
+      if (!res.ok) throw new Error(body.error || 'Account could not be deleted.');
+      if (isTherapist && therapistId) deleteTherapist(therapistId);
       setLiveUsers(prev => prev.filter(u => u.id !== userId));
-      setAdminNotice(t(`Account "${label}" removed.`, `መለያ ተሰርዟል።`));
+      setAdminNotice('Account successfully deleted.');
+    } catch (error) {
+      setAdminNotice(error instanceof Error ? error.message : 'Could not delete account.');
     } finally {
       setBusyAction(false);
     }
@@ -150,14 +120,9 @@ export default function AdminPortal() {
               <p style={{ fontSize: '14px', color: '#bbb', margin: '0 0 24px' }}>
                 Enter your administrator passphrase to access the management console.
               </p>
-              <form onSubmit={e => {
+              <button className="solid" onClick={() => void signInAdmin()}>Continue with my authorized account →</button><p><Link href="/account?next=/admin">Sign in through Telegram first</Link></p><form onSubmit={e => {
                 e.preventDefault();
-                if (authInput === requiredPhrase) {
-                  setPassphrase(authInput);
-                  setAuthError('');
-                } else {
-                  setAuthError('Incorrect passphrase. Use the authorized admin secret.');
-                }
+                void signInAdmin(authInput);
               }}>
                 <input
                   type="password"
@@ -188,10 +153,10 @@ export default function AdminPortal() {
 
   // ── Computed stats ───────────────────────────────────────────
   const today = dateKey();
-  const totalBookings = state.appointments.length;
-  const todayBookings = state.appointments.filter(a => a.date === today && a.status !== 'cancelled').length;
+  const totalBookings = bookings.length;
+  const todayBookings = bookings.filter(a => a.date === today && a.status !== 'cancelled').length;
   const totalRevenue = state.receipts.reduce((n, r) => n + r.amount, 0);
-  const pendingAppts = state.appointments.filter(a => a.status === 'pending');
+  const pendingAppts = bookings.filter(a => a.status === 'pending');
   const allMessages = messages;
   const registeredCount = state.registeredTherapists?.length || 0;
 
@@ -219,7 +184,7 @@ export default function AdminPortal() {
   const therapistBookingCounts = people.map(p => ({
     id: p.id,
     name: p.name.split(' ')[0],
-    count: state.appointments.filter(a => a.therapist === p.id && a.status !== 'cancelled').length,
+    count: bookings.filter(a => a.therapist === p.id && a.status !== 'cancelled').length,
   }));
   const maxCount = Math.max(1, ...therapistBookingCounts.map(x => x.count));
 
@@ -231,7 +196,7 @@ export default function AdminPortal() {
   const maxRev = Math.max(1, ...packageRevByTherapist.map(x => x.amount));
 
   // Filtered bookings
-  const filteredBookings = state.appointments
+  const filteredBookings = bookings
     .filter(a => (bookingFilter === 'all' ? true : a.status === bookingFilter))
     .filter(a => {
       if (!bookingSearch.trim()) return true;
@@ -272,7 +237,7 @@ export default function AdminPortal() {
             <br />
             <button
               style={{ marginTop: '8px', fontSize: '10px', color: 'var(--danger)', borderColor: 'var(--danger)' }}
-              onClick={() => setPassphrase('')}
+              onClick={() => { setPassphrase(''); setAuth(false); }}
             >
               {t('Sign out', 'ውጣ')}
             </button>
@@ -463,7 +428,7 @@ export default function AdminPortal() {
                       )
                       .map(p => {
                         const ps = settings(p.id);
-                        const bCount = state.appointments.filter(
+                        const bCount = bookings.filter(
                           a => a.therapist === p.id && a.status !== 'cancelled'
                         ).length;
                         const isCustom = state.registeredTherapists?.some(r => r.id === p.id);
@@ -567,7 +532,7 @@ export default function AdminPortal() {
                 {(() => {
                   // Merge live users from Supabase Auth + local appointment clients
                   const localClientIds = Array.from(
-                    new Set(state.appointments.map(a => a.client).filter(c => c && c !== 'demo-client'))
+                    new Set(bookings.map(a => a.client).filter(c => c && c !== 'demo-client'))
                   );
 
                   type DisplayClient = { id: string; name: string; email?: string; bookingCount: number };
@@ -575,14 +540,14 @@ export default function AdminPortal() {
 
                   // Add live users from auth
                   liveUsers.forEach(u => {
-                    const count = state.appointments.filter(a => a.client === u.id).length;
+                    const count = bookings.filter(a => a.client === u.id).length;
                     map.set(u.id, { id: u.id, name: u.name, email: u.email, bookingCount: count });
                   });
 
                   // Add local clients with bookings if not already present
                   localClientIds.forEach(id => {
                     if (!map.has(id)) {
-                      const count = state.appointments.filter(a => a.client === id).length;
+                      const count = bookings.filter(a => a.client === id).length;
                       map.set(id, { id, name: id.slice(0, 16) + '…', bookingCount: count });
                     }
                   });

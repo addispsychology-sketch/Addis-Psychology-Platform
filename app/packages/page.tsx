@@ -1,8 +1,37 @@
-"use client";
-import {useState} from 'react';
+'use client';
+import { useState } from 'react';
 import Link from 'next/link';
-import {Page} from '@/components/Shell';
-import {usePlatform} from '@/components/Platform';
+import { MessageCircle, Mic, AudioLines, ArrowRight, Check } from 'lucide-react';
+import { Page } from '@/components/Shell';
+import { usePlatform } from '@/components/Platform';
 import PaymentCheckout from '@/components/PaymentCheckout';
-import {PACKAGE_PRINCIPAL,moneyCents,serviceFee} from '@/lib/payment-policy';
-export default function Packages(){const [selected,setSelected]=useState<'text'|'voice'|'combined'>('text');const {balance}=usePlatform();const credits=balance(0);return <Page><span className="eyebrow">YOUR PACE / YOUR CONNECTION</span><h1>A little more connected.</h1><p className="lede">Choose text, voice, or both. Your credits stay with your account and can be used with any approved therapist. You can buy before choosing a therapist.</p><div className="bundle-grid">{(['text','voice','combined'] as const).map((kind,i)=><button className="bundle-card" key={kind} aria-pressed={selected===kind} onClick={()=>setSelected(kind)}><span className="eyebrow">0{i+1} / {kind==='combined'?'TEXT + VOICE':kind.toUpperCase()}</span><strong>{moneyCents(PACKAGE_PRINCIPAL[kind])}</strong><span>{kind==='voice'?'Voice notes':'100 text messages'}</span><span>{kind==='text'?'Up to 2,000 characters per message':'60 voice minutes, charged by recorded seconds'}</span><small>+ {moneyCents(serviceFee(PACKAGE_PRINCIPAL[kind]))} service fee (5%)</small><b>{selected===kind?'✓ SELECTED':'CHOOSE PACKAGE'}</b></button>)}</div><div className="care-strip"><p><strong>{credits.texts}</strong> texts · <strong>{(credits.voiceSeconds/60).toFixed(1)}</strong> voice minutes available</p><Link href="/wallet">Balance & receipts →</Link></div><PaymentCheckout key={selected} kind={selected}/><p className="muted">Packages do not guarantee a therapist is currently available or an immediate response. Unused service value is refundable; the 5% fee is retained. You can also wait until you find a therapist before paying.</p></Page>}
+import { PACKAGE_PRINCIPAL, moneyCents, serviceFee } from '@/lib/payment-policy';
+const packages = [
+  { kind: 'text', title: 'Write it out.', detail: '100 text messages', note: 'Space to put your thoughts into words.', icon: MessageCircle },
+  { kind: 'voice', title: 'Say it your way.', detail: '60 voice minutes', note: 'Send a voice note, at your own pace.', icon: Mic },
+  { kind: 'combined', title: 'A little of both.', detail: '100 texts + 60 voice minutes', note: 'Choose how you feel like connecting.', icon: AudioLines },
+] as const;
+export default function Packages() {
+  const [selected, setSelected] = useState<'text' | 'voice' | 'combined'>('text');
+  const [checkout, setCheckout] = useState(false);
+  const { balance } = usePlatform();
+  const credits = balance(0);
+  return <Page><div className="care-page">
+    <header className="care-page-heading"><span className="eyebrow">A LITTLE SUPPORT / AT YOUR PACE</span><h1>More room<br />to talk.</h1><p>Choose your way to connect. One purchase, no subscription.</p></header>
+    {checkout ? <><button className="care-back" onClick={() => setCheckout(false)}>← Change package</button><PaymentCheckout key={selected} kind={selected} /></> : <>
+      <div className="package-options" aria-label="Choose a messaging package">{packages.map(({ kind, title, detail, note, icon: Icon }) => {
+        const total = PACKAGE_PRINCIPAL[kind] + serviceFee(PACKAGE_PRINCIPAL[kind]);
+        return <button key={kind} className="package-option" aria-pressed={selected === kind} onClick={() => setSelected(kind)}>
+          <span className="package-symbol"><Icon size={24} /></span><span className="package-copy"><strong>{title}</strong><span>{detail}</span><small>{note}</small></span>
+          <span className="package-selection" aria-hidden="true">{selected === kind && <Check size={16} />}</span>
+          <span className="package-price"><b>{moneyCents(total)}</b><small>5% fee included</small></span>
+        </button>;
+      })}</div>
+      <button className="solid package-continue" onClick={() => { setCheckout(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>Continue with {selected === 'combined' ? 'text + voice' : selected} <ArrowRight size={18} /></button>
+      <p className="care-caption">Pay with Telebirr or CBE. Credits arrive after Addis Psychology verifies your transfer.</p>
+    </>}
+    <div className="care-strip"><div><span className="eyebrow">ALREADY YOURS</span><p><strong>{credits.texts}</strong> texts · <strong>{(credits.voiceSeconds / 60).toFixed(1)}</strong> voice minutes</p></div><Link href="/wallet">View wallet <ArrowRight size={16} /></Link></div>
+    <details className="care-details"><summary>Good to know before you buy</summary><p>Credits work with any approved therapist. Each text allows up to 2,000 characters; voice notes use recorded seconds. Replies do not use your credits.</p><p>Messages are asynchronous. A package does not guarantee an immediate reply. <Link href="/therapists">Find your therapist first</Link> if you prefer.</p><p>Unused package value is refundable; the 5% fee is retained. <Link href="/terms#refunds">Read the refund policy</Link>.</p></details>
+    <p className="care-caption">Booking a live session? Pay your therapist directly after Addis Psychology confirms your request. Messaging packages are separate.</p>
+  </div></Page>;
+}

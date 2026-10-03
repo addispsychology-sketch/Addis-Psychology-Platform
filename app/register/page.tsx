@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { usePlatform, Registration } from '@/components/Platform';
 import { Page, DemoNote, Photo } from '@/components/Shell';
 import PhotoUpload from '@/components/PhotoUpload';
@@ -31,7 +30,6 @@ const LANGUAGE_OPTIONS: [string, string][] = [
 
 export default function RegisterPage() {
   const { t, register, state } = usePlatform();
-  const router = useRouter();
 
   const [step, setStep] = useState(0);
   const [createdId, setCreatedId] = useState<number | null>(null);
@@ -99,10 +97,6 @@ export default function RegisterPage() {
     if (s === 1) {
       if (!form.title.trim()) {
         setError(t('Please specify your professional clinical title.', 'የሙያ ማዕረግዎን ይግለጹ።'));
-        return false;
-      }
-      if (!form.license.trim()) {
-        setError(t('Please input your license or accreditation number.', 'የሙያ ፈቃድ ወይም የምዝገባ ቁጥር ያስገቡ።'));
         return false;
       }
       if (!form.languages.length) {
@@ -376,7 +370,7 @@ export default function RegisterPage() {
                       </label>
 
                       <label>
-                        {t('License / Accreditation Reference Number', 'የሙያ ፈቃድ ቁጥር')}
+                        {t('License / Accreditation Reference Number (optional)', 'የሙያ ፈቃድ ቁጥር (አማራጭ)')}
                         <input
                           type="text"
                           placeholder="e.g. ET-MOH-PSY-2024-8841"

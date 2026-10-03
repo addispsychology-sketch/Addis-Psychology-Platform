@@ -2,15 +2,16 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowRight, Bell, CalendarDays, CheckCircle2, ChevronDown, ChevronUp, Eye, EyeOff, LockKeyhole, MessageCircle, ShieldCheck, UserRound } from 'lucide-react';
+import { ArrowRight, Bell, CalendarDays, CheckCircle2, Eye, EyeOff, LockKeyhole, MessageCircle, ShieldCheck, UserRound } from 'lucide-react';
 import { authenticatedFetch, getSupabase } from '@/lib/supabase';
 import { normalizePhone } from '@/lib/booking-validation';
 import { telegramSignIn } from '@/lib/telegram-client';
+import TermsConsent from './TermsConsent';
 import { TERMS_VERSION } from '@/lib/payment-policy';
 import { usePlatform } from './Platform';
 
 export default function AccountPanel() {
-  const { userId, ownTherapistId, refreshWallet } = usePlatform();
+  const { userId, ownTherapistId, refreshWallet, wallet } = usePlatform();
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get('next') || '';
@@ -23,7 +24,9 @@ export default function AccountPanel() {
   const [password, setPassword] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [agreeTerms, setAgreeTerms] = useState(false);
-  const [showTermsDrawer, setShowTermsDrawer] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [recovery, setRecovery] = useState(false);
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
@@ -32,6 +35,17 @@ export default function AccountPanel() {
   const [profileReady, setProfileReady] = useState(false);
   const [revision, setRevision] = useState(0);
   const bot = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME;
+
+  useEffect(() => {
+    const db = getSupabase();
+    const hash = new URLSearchParams(window.location.hash.slice(1));
+    const timer = setTimeout(() => { if (hash.get('error_description')) setNotice(hash.get('error_description') || 'This link has expired. Request a new one.');
+    if (hash.get('type') === 'recovery' || params.get('flow') === 'recovery') setRecovery(true); }, 0);
+    const subscription = db?.auth.onAuthStateChange(event => {
+      if (event === 'PASSWORD_RECOVERY') setRecovery(true);
+    });
+    return () => { clearTimeout(timer); subscription?.data.subscription.unsubscribe(); };
+  }, [params]);
 
   useEffect(() => {
     let alive = true;
@@ -77,7 +91,7 @@ export default function AccountPanel() {
       if (!db) throw new Error('Account sign-in is being prepared. Please come back shortly.');
 
       if (mode === 'reset') {
-        const { error } = await db.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin + '/account' });
+        const { error } = await db.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin + '/account?flow=recovery' });
         if (error) throw error;
         setNotice('If an account exists for that email, you’ll receive a reset link. Open it, then set your new password here.');
         return;
@@ -131,7 +145,7 @@ export default function AccountPanel() {
 
       // Default signin with email/password
       const result = await db.auth.signInWithPassword({ email: email.trim(), password });
-      if (result.error) throw result.error;
+      if (result.error) { if (result.error.code === 'email_not_confirmed') { setMode('verify-code'); setNotice('Your email still needs confirmation. Enter the code from your email, or request a fresh one below.'); return; } throw result.error; }
       setPassword('');
       if (result.data.session) {
         setNotice('You’re signed in. Welcome to Addis.');
@@ -147,20 +161,12 @@ export default function AccountPanel() {
       const code = otpCode.trim();
       if (!/^\d{6}$/.test(code)) throw new Error('Please enter the 6-digit verification code.');
 
-      const { data, error } = await db.auth.verifyOtp({
+      const { error } = await db.auth.verifyOtp({
         email: email.trim(),
         token: code,
-        type: 'signup'
+        type: 'email'
       });
-      if (error) {
-        // Also attempt email verification type if signup type differs in provider config
-        const fallback = await db.auth.verifyOtp({
-          email: email.trim(),
-          token: code,
-          type: 'email'
-        });
-        if (fallback.error) throw error;
-      }
+      if (error) throw error;
 
       await recordTerms();
       setNotice('Email verified! Welcome to Addis Psychology.');
@@ -175,7 +181,8 @@ export default function AccountPanel() {
       if (!db) throw new Error('Service unavailable.');
       const { error } = await db.auth.resend({
         type: 'signup',
-        email: email.trim()
+        email: email.trim(),
+        options: { emailRedirectTo: window.location.origin + '/account' }
       });
       if (error) throw error;
       setNotice(`A new 6-digit code was sent to ${email.trim()}.`);
@@ -206,7 +213,8 @@ export default function AccountPanel() {
         if (saved.error) throw new Error('Your account was saved, but notification preferences could not be saved yet.');
       }
       setPassword('');
-      setNotice(update.email ? 'Check your email to confirm the new address. Your other changes are saved.' : 'Your changes are saved.');
+      setSaved(!update.email);
+      setNotice(update.email ? 'Check your email to confirm the new address. Your other changes are saved.' : 'All saved. Your account is ready—choose a therapist or open your conversations.');
     });
   }
 
@@ -249,7 +257,14 @@ export default function AccountPanel() {
           </div>
         </div>
 
-        {!userId ? (
+        {recovery && userId ? <form onSubmit={e => { e.preventDefault(); void perform(async () => {
+          if (password.length < 12) throw new Error('Use at least 12 characters.');
+          if (password !== confirmPassword) throw new Error('Your passwords do not match.');
+          const result = await getSupabase()!.auth.updateUser({ password });
+          if (result.error) throw result.error;
+          setPassword(''); setConfirmPassword(''); setRecovery(false); setSaved(true);
+          router.replace('/account'); setNotice('Password updated. You’re ready to continue.');
+        }); }}><h2>A fresh start.</h2><p>Choose a new password to secure your account.</p><label>New password<input required type="password" minLength={12} autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} /></label><label>Confirm new password<input required type="password" minLength={12} autoComplete="new-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} /></label><button className="solid" disabled={busy}>{busy ? 'Saving…' : 'Save new password'} <ArrowRight size={16} /></button></form> : !userId ? (
           <>
             {mode !== 'reset' && mode !== 'verify-code' && (
               <div className="account-tabs">
@@ -286,7 +301,7 @@ export default function AccountPanel() {
                   We sent a 6-digit confirmation code to <strong>{email}</strong>. Enter it below to activate your account and start your care.
                 </p>
                 <label>
-                  6-Digit Verification Code
+                  Verification code
                   <input
                     type="text"
                     inputMode="numeric"
@@ -294,6 +309,7 @@ export default function AccountPanel() {
                     maxLength={6}
                     required
                     autoFocus
+                    autoComplete="one-time-code"
                     value={otpCode}
                     onChange={e => setOtpCode(e.target.value.replace(/\D/g, ''))}
                     placeholder="123456"
@@ -369,57 +385,7 @@ export default function AccountPanel() {
 
                 {/* ── DETAILED TERMS & CONDITIONS ACCEPTANCE ON SIGNUP ── */}
                 {mode === 'signup' && (
-                  <div style={{ margin: '20px 0 16px', border: '2px solid var(--ink)', padding: '16px', background: 'var(--surface-soft)' }}>
-                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', margin: 0, textTransform: 'none', letterSpacing: 0, fontSize: '13px', lineHeight: 1.5, cursor: 'pointer' }}>
-                      <input
-                        type="checkbox"
-                        required
-                        checked={agreeTerms}
-                        onChange={e => setAgreeTerms(e.target.checked)}
-                        style={{ marginTop: '3px', width: 'auto', flexShrink: 0 }}
-                      />
-                      <span>
-                        <strong>I agree to the Addis Psychology Terms &amp; Conditions</strong>, including our 5% platform service fee, payment through treasury payee <strong>Dawit Aynalem</strong> (Telebirr 0990171738 / CBE 1000605180519), the 24-hour cancellation rule for 100% unused session refunds, emergency rescheduling protection, and 24-hour refund processing.
-                      </span>
-                    </label>
-
-                    <button
-                      type="button"
-                      onClick={() => setShowTermsDrawer(!showTermsDrawer)}
-                      style={{
-                        marginTop: '12px',
-                        background: 'none',
-                        border: 'none',
-                        padding: 0,
-                        fontSize: '11px',
-                        fontFamily: 'Space Mono, monospace',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        color: 'var(--ink)',
-                        cursor: 'pointer',
-                        textDecoration: 'underline'
-                      }}
-                    >
-                      {showTermsDrawer ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                      {showTermsDrawer ? 'Hide terms summary' : 'Read key policy details'}
-                    </button>
-
-                    {showTermsDrawer && (
-                      <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid var(--rule-soft)', fontSize: '12px', lineHeight: 1.6, color: 'var(--text)' }}>
-                        <p style={{ margin: '0 0 8px' }}><strong>🌿 Services Provided:</strong> One-to-one confidential text messaging, recorded audio notes, live audio consultations, verified practitioner directory, and booking management.</p>
-                        <p style={{ margin: '0 0 8px' }}><strong>💳 Payment &amp; Wallet:</strong> Manual transfers to Dawit Aynalem via Telebirr (0990171738) or CBE (1000605180519). Verified funds are credited to your secure prepaid wallet.</p>
-                        <p style={{ margin: '0 0 8px' }}><strong>🪙 5% Platform Fee:</strong> A 5% Addis Psychology service fee is applied to therapy appointments and text/voice packages when payment is made. This fee is non-refundable upon verification.</p>
-                        <p style={{ margin: '0 0 8px' }}><strong>⏱️ 24-Hour Cancellation &amp; Refund:</strong> Cancel or request changes at least 24 hours before your session to receive a 100% refund of unused session value. For multi-session packs (e.g. 4 sessions), remaining unused sessions are refunded in full when requested 24 hours in advance.</p>
-                        <p style={{ margin: '0 0 8px' }}><strong>🚨 Emergencies:</strong> If an unforeseen emergency prevents session attendance, your funds remain reserved and will be applied to an agreed replacement date.</p>
-                        <p style={{ margin: '0 0 8px' }}><strong>⚡ 24-Hour Payouts:</strong> Approved refunds from your available wallet balance are processed and transferred to your receiving account within 24 hours.</p>
-                        <p style={{ margin: '0 0 8px' }}><strong>🔒 Confidentiality:</strong> All interactions adhere to strict clinical ethics and professional privacy standards. Message content is never transmitted via email.</p>
-                        <Link href="/terms" target="_blank" style={{ fontSize: '11px', fontWeight: 700 }}>Read complete legal terms &rarr;</Link>
-                      </div>
-                    )}
-                  </div>
+                  <div className="signup-consent"><TermsConsent checked={agreeTerms} onChange={setAgreeTerms} /><p className="care-caption">Messaging packages carry a 5% service fee. For appointments, pay your therapist directly after confirmation.</p></div>
                 )}
 
                 <button className="solid account-submit" disabled={busy || (mode === 'signup' && !agreeTerms)}>
@@ -446,12 +412,14 @@ export default function AccountPanel() {
           </>
         ) : (
           <>
+            <section className="account-next" aria-label="Your next step"><CheckCircle2 size={26} /><span className="eyebrow">{saved ? 'ALL SAVED / YOU’RE READY' : 'SIGNED IN / YOUR NEXT STEP'}</span><h3>{saved ? 'You’re all set.' : 'Where would you like to start?'}</h3><p>{ownTherapistId ? 'Open your workspace to manage your practice.' : 'Find someone you feel comfortable with, or continue a conversation.'}</p><Link className="solid" href={ownTherapistId ? '/portal' : '/therapists'}>{ownTherapistId ? 'Open workspace' : 'Find my therapist'} <ArrowRight size={16} /></Link><Link href={ownTherapistId ? '/portal?tab=chat' : '/chat'}>Go to my conversations →</Link></section>
+            {wallet && !wallet.terms_acceptances.some(x => x.audience === 'client' && x.version === TERMS_VERSION) && <section className="care-card"><h3>One step before booking or buying.</h3><TermsConsent checked={agreeTerms} onChange={setAgreeTerms} /><button className="solid" disabled={!agreeTerms || busy} onClick={() => void perform(async () => { await authenticatedFetch('/api/terms', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({accepted:true,audience:'client',version:TERMS_VERSION}) }); await refreshWallet(); setNotice('Terms saved. You’re ready to book or choose a package.'); })}>Accept terms & continue</button></section>}
             <nav className="account-shortcuts" aria-label="Account shortcuts">
               <Link href={ownTherapistId ? '/portal' : '/appointments'}><CalendarDays size={19} /> {ownTherapistId ? 'Workspace' : 'Appointments'}</Link>
               <Link href={ownTherapistId ? '/portal?tab=chat' : '/chat'}><MessageCircle size={19} /> Messages</Link>
             </nav>
             {destination && <Link className="account-return" href={destination}>Continue where you left off <ArrowRight size={16} /></Link>}
-            <form onSubmit={e => { e.preventDefault(); void saveProfile(); }}>
+            <details className="care-details"><summary>Profile & sign-in settings</summary><form onSubmit={e => { e.preventDefault(); void saveProfile(); }}>
               <label>Your name<input autoComplete="name" maxLength={100} value={name} onChange={e => setName(e.target.value)} /></label>
               <label>Email for reminders<input type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Add an email address" /><small>We’ll ask you to confirm a new address.</small></label>
               <label>New password <span className="account-optional">optional</span><input type="password" minLength={12} autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Leave blank to keep your password" /></label>
@@ -471,7 +439,7 @@ export default function AccountPanel() {
               </fieldset>
               <button className="solid account-submit" disabled={busy}>{busy ? 'Saving…' : 'Save changes'} <ArrowRight size={17} /></button>
             </form>
-            <button className="account-text-button" onClick={() => void perform(async () => { await getSupabase()?.auth.signOut(); setPassword(''); setNotice('You’re signed out.'); })}>
+            </details><button className="account-text-button" onClick={() => void perform(async () => { await getSupabase()?.auth.signOut(); setPassword(''); setNotice('You’re signed out.'); })}>
               Sign out
             </button>
           </>

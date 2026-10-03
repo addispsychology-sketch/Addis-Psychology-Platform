@@ -90,3 +90,20 @@ test('provider errors are surfaced without logging provider response bodies or t
     return true;
   });
 });
+
+const { configureAuthEmail } = await import('../scripts/setup-messaging.mjs');
+test('auth email installation preserves other app redirects and installs branded provider templates', async () => {
+ const env = { APP_URL:'https://example.com', SUPABASE_SECRET_KEY:'test', TELEGRAM_BOT_TOKEN:'test', TELEGRAM_WEBHOOK_SECRET:'a'.repeat(32), NOTIFICATION_JOB_SECRET:'b'.repeat(32), SMTP_HOST:'smtp.example.com', SMTP_PORT:'465', SMTP_USER:'mail@example.com', SMTP_PASSWORD:'test', SMTP_FROM:'mail@example.com', SUPABASE_ACCESS_TOKEN:'test', SUPABASE_PROJECT_ID:'test-project' };
+ let patch;
+ await configureAuthEmail(env, async (_url, options) => {
+  if (options.method === 'PATCH') { patch = JSON.parse(options.body); return Response.json({}); }
+  return Response.json({uri_allow_list:'https://older.example.com/account',site_url:'https://older.example.com'});
+ });
+ assert.ok(patch.uri_allow_list.includes('https://older.example.com/account'));
+ assert.ok(patch.uri_allow_list.includes('https://example.com/account?flow=recovery'));
+ assert.equal(patch.site_url, undefined);
+ assert.equal(patch.mailer_autoconfirm, false);
+ assert.ok(patch.mailer_templates_confirmation_content.includes('{{ .TokenHash }}'));
+ assert.ok(patch.mailer_templates_recovery_content.includes('type=recovery'));
+ assert.ok(patch.mailer_templates_email_change_content.includes('{{ .ConfirmationURL }}'));
+});

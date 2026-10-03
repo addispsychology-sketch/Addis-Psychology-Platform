@@ -1,3 +1,4 @@
+import { requireTerms } from '@/lib/require-terms';
 import { authorize } from '@/lib/server-auth';
 import { apiError, serviceDb } from '@/lib/server-services';
 import { validateBooking } from '@/lib/booking-validation';
@@ -7,6 +8,7 @@ import { discountedPrice } from '@/lib/commerce';
 export async function POST(request: Request) {
   try {
     const { user } = await authorize(request);
+    await requireTerms(user.id);
     const input = validateBooking(await request.json());
     const db = serviceDb();
     const { data: p, error } = await db.from('practitioners').select('id,user_id,approved,settings,profile').eq('id', input.therapist).single();
@@ -27,6 +29,7 @@ export async function PATCH(request: Request) {
   try {
     const { db: scoped, user } = await authorize(request);
     const { id, status } = await request.json();
+    if (status === 'confirmed') throw new Error('Addis Psychology confirms booking requests. Please coordinate with the platform.');
     if (!['confirmed', 'cancelled', 'completed'].includes(status)) throw new Error('Invalid appointment status.');
     const { data: appointment } = await scoped.from('appointments').select('*').eq('id', id).single();
     if (!appointment) throw new Error('Appointment not found.');

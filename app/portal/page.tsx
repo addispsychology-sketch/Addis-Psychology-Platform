@@ -413,12 +413,7 @@ function TherapistPortalInner() {
                               {statusLabel(a.status, t)}
                             </span>
                             {a.status === 'pending' && (
-                              <button
-                                style={{ fontSize: '10px', padding: '4px 8px' }}
-                                onClick={() => updateAppointment(a.id, { status: 'confirmed' })}
-                              >
-                                {t('Confirm', 'አረጋግጥ')}
-                              </button>
+                              <small>Awaiting Addis Psychology confirmation</small>
                             )}
                           </div>
                         </div>

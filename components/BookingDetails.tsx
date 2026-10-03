@@ -24,7 +24,7 @@ export default function BookingDetails({ therapist, day, time, medium, available
     });
     return () => { alive = false; };
   }, [userId]);
-  if (booked) return <section className="booking-details booking-success" role="status"><ShieldCheck size={34} /><h2>Your request is in.</h2><p>Your therapist will review your appointment. Check My appointments for confirmation; payment has not been collected.</p><Link className="solid" href="/appointments">View my appointments <ArrowRight size={17} /></Link></section>;
+  if (booked) return <section className="booking-details booking-success" role="status"><ShieldCheck size={34} /><h2>Your request is in.</h2><p>Addis Psychology will review and confirm your appointment. Once confirmed, arrange payment directly with your therapist. No payment has been collected here.</p><Link className="solid" href="/appointments">View my appointments <ArrowRight size={17} /></Link></section>;
   if (!userId) return (
     <section className="booking-details">
       <motion.div
@@ -66,7 +66,7 @@ export default function BookingDetails({ therapist, day, time, medium, available
     </section>
   );
 
-  return <section className="booking-details"><span className="account-eyebrow">03 / YOUR DETAILS</span><h2>Let’s make it personal.</h2><p>Just the essentials so your therapist can arrange your session.</p>
+  return <section className="booking-details"><span className="account-eyebrow">03 / YOUR DETAILS</span><h2>Let’s make it personal.</h2><p>Request your time. Addis Psychology confirms your booking, then you pay your therapist directly. Messaging package payments are separate.</p>
     <form onSubmit={async e => {
       e.preventDefault(); if (busy) return;
       setBusy(true); setNotice('');

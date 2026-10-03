@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, Suspense } from 'react';
+import { useState, Suspense } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { usePlatform } from '@/components/Platform';
@@ -16,8 +16,8 @@ function ScheduleInner() {
   const { t, people, settings, state, date, money } = usePlatform();
   const p = people.find(p => p.id === id);
   const [offset, setOffset] = useState(0);
-  const [day, setDay] = useState(searchParams.get('date') || '');
-  const [time, setTime] = useState(searchParams.get('time') || '');
+  const [chosenDay, setDay] = useState(searchParams.get('date') || '');
+  const [chosenTime, setTime] = useState(searchParams.get('time') || '');
   const [medium, setMedium] = useState<'online' | 'inperson'>(searchParams.get('medium') === 'inperson' ? 'inperson' : 'online');
   const conf = settings(id);
   const today = dateKey();
@@ -28,17 +28,9 @@ function ScheduleInner() {
     conf.days.includes(new Date(`${d}T12:00`).getDay()) &&
     !state.appointments.some(a => a.therapist === id && a.date === d && a.time === s && a.status !== 'cancelled');
 
-  // Quick-book: auto-select first available slot today or nearest day
-  useEffect(() => {
-    if (!isQuick || day) return;
-    const allDays = Array.from({ length: 14 }, (_, i) => shiftDate(today, i));
-    for (const d of allDays) {
-      const daySlots = slots(conf.start, conf.end);
-      const firstSlot = daySlots.find(s => available(d, s));
-      if (firstSlot) { setDay(d); setTime(firstSlot); break; }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isQuick]);
+  const quickSlot = isQuick && !chosenDay ? Array.from({ length: 14 }, (_, i) => shiftDate(today, i)).flatMap(d => slots(conf.start, conf.end).filter(s => available(d, s)).map(s => ({day:d,time:s})))[0] : undefined;
+  const day = chosenDay || quickSlot?.day || '';
+  const time = chosenTime || quickSlot?.time || '';
 
   if (!p) return (
     <Page>

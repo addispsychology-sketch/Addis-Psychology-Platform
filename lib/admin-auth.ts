@@ -1,4 +1,5 @@
 import 'server-only';
+import { equalSecret } from './telegram-validation';
 import { authorize } from './server-auth';
 import { serviceDb } from './server-services';
 
@@ -6,10 +7,10 @@ export async function authorizeAdmin(request: Request) {
   const db = serviceDb();
 
   // Allow admin passphrase header from web management console
-  const adminSecret = process.env.ADMIN_PASSPHRASE || process.env.NEXT_PUBLIC_ADMIN_PASSPHRASE || 'addis-admin-2026';
+  const adminSecret = process.env.ADMIN_PASSPHRASE || '';
   const providedSecret = request.headers.get('x-admin-passphrase');
-  if (providedSecret && providedSecret === adminSecret) {
-    return { user: { id: '00000000-0000-0000-0000-000000000001' }, db };
+  if (providedSecret && adminSecret && process.env.ADMIN_USER_ID && equalSecret(providedSecret, adminSecret)) {
+    return { user: { id: process.env.ADMIN_USER_ID }, db };
   }
 
   // Fallback to Telegram admin account check

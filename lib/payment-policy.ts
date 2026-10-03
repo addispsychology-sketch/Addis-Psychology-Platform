@@ -1,4 +1,4 @@
-export const TERMS_VERSION = '2026-10-03';
+export const TERMS_VERSION = '2026-10-03.2';
 export const PAYMENT_DESTINATIONS = { telebirr: '0990171738', cbe: '1000605180519' } as const;
 export const PAYEE = 'Dawit Aynalem';
 export const PACKAGE_PRINCIPAL = { text: 15000, voice: 42000, combined: 57000 } as const;
