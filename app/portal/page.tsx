@@ -36,10 +36,11 @@ function TherapistPortalInner() {
   const { t, people, loadMoreMessages, userId, ownTherapistId, conversations, activeConversation, setActiveConversation, state, messages, reply, money, date, clear, settings, updateSettings, updateAppointment } =
     usePlatform();
   const searchParams = useSearchParams();
+  const linkedConversation = searchParams.get('conversation');
   const initialTherapist = Number(searchParams.get('therapist') || (people[0] ? people[0].id : 1));
 
   const id = ownTherapistId || initialTherapist;
-  const [tab, setTab] = useState<'overview' | 'chat' | 'calendar' | 'rates' | 'profile'>('overview');
+  const [tab, setTab] = useState<'overview' | 'chat' | 'calendar' | 'rates' | 'profile'>(linkedConversation || searchParams.get('tab') === 'chat' ? 'chat' : 'overview');
   const [showChatInfo, setShowChatInfo] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [reset, setReset] = useState(false);
@@ -64,6 +65,11 @@ function TherapistPortalInner() {
   const thread = messages.filter(m => m.therapist === id && m.conversationId === activeConversation);
   const pendingAppointments = appointments.filter(a => a.status === 'pending');
   const todayBookings = appointments.filter(a => a.date === dateKey() && a.status !== 'cancelled');
+
+  useEffect(() => {
+    if (!linkedConversation || !conversations.some(c => c.id === linkedConversation && c.therapist_id === ownTherapistId)) return;
+    setActiveConversation(linkedConversation);
+  }, [linkedConversation, conversations, ownTherapistId, setActiveConversation]);
 
   useEffect(() => {
     if (tab === 'chat') {
@@ -303,7 +309,7 @@ function TherapistPortalInner() {
 
                 {!appointments.some(a => a.date >= dateKey() && a.status !== 'cancelled') ? (
                   <div className="empty-state">
-                    <p>{t('No bookings on schedule yet. Try creating a simulated booking as a client.', 'ቀጠሮ የለም። እንደ ደንበኛ የሙከራ ቀጠሮ ይያዙ።')}</p>
+                    <p>{t('No appointment requests yet. New requests will appear here.', 'ቀጠሮ የለም። እንደ ደንበኛ የሙከራ ቀጠሮ ይያዙ።')}</p>
                     <NextLink className="solid compact" href={`/schedule/${id}`}>
                       {t('Simulate Client Booking', 'ቀጠሮ ይሞክሩ')}
                     </NextLink>
@@ -316,7 +322,7 @@ function TherapistPortalInner() {
                       .map(a => (
                         <div key={a.id} className="portal-appointment-row">
                           <div>
-                            <strong>{a.client === 'demo-client' ? t('Client', 'ደንበኛ') : a.client}</strong>
+                            <strong>{a.client}</strong>{a.phone && <p><a href={`tel:${a.phone}`}>{a.phone}</a>{a.language && ` · ${a.language}`}</p>}
                             <small style={{ display: 'block', color: 'var(--muted-text)', marginTop: '2px' }}>
                               📅 {date(`${a.date}T12:00`)} · ⏰ {a.time} ({a.medium === 'online' ? '💻 Online' : '🏥 In-person'})
                             </small>

@@ -10,6 +10,7 @@ test('migration enforces participant access, sender identity, and approval privi
     await db.exec(`
       create role anon;
       create role authenticated;
+      create role service_role bypassrls;
       create schema auth;
       create schema realtime;
       create schema storage;
@@ -22,7 +23,7 @@ test('migration enforces participant access, sender identity, and approval privi
       create table realtime.messages(id bigint, extension text);
       alter table realtime.messages enable row level security;
       create function realtime.topic() returns text language sql stable as $$ select current_setting('realtime.topic', true) $$;
-      grant usage on schema public, auth, realtime to anon, authenticated;
+      grant usage on schema public, auth, realtime to anon, authenticated, service_role;
       grant select, insert on realtime.messages to authenticated;
       create publication supabase_realtime;
     `);
@@ -83,6 +84,57 @@ test('migration enforces participant access, sender identity, and approval privi
       select set_config('realtime.topic','messages:00000000-0000-4000-8000-000000000003',true);
       do $$ begin
         if exists(select 1 from realtime.messages) then raise exception 'FAIL: user can join another message topic'; end if;
+      end $$;
+      reset role;
+      insert into public.telegram_accounts(user_id,telegram_id,chat_id) values ('00000000-0000-4000-8000-000000000001',100001,100001);
+      insert into public.appointments(id,client_id,therapist_id,starts_at,medium,price,client_name,phone,consent_at)
+        select '00000000-0000-4000-8000-000000000010','00000000-0000-4000-8000-000000000001',id,now()+interval '3 days','online',1200,'Test client','+251911111111',now() from public.practitioners where user_id='00000000-0000-4000-8000-000000000002';
+      do $$ begin
+        if (select count(*) from public.notification_jobs where kind='appointment') <> 4 then raise exception 'Booking must queue both recipients and channels'; end if;
+        if not exists(select 1 from public.notification_jobs where kind='message' and recipient='00000000-0000-4000-8000-000000000002') then raise exception 'Message notification sent to wrong user'; end if;
+        if exists(select 1 from public.notification_jobs where summary like '%private test%') then raise exception 'Message contents leaked into alert'; end if;
+      end $$;
+      update public.appointments set status='confirmed' where id='00000000-0000-4000-8000-000000000010';
+      do $$ begin
+        if (select count(*) from public.notification_jobs where kind='reminder') <> 8 then raise exception 'Both reminder windows must be queued for both users and channels'; end if;
+      end $$;
+      set local role authenticated;
+      select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',true);
+      do $$ begin
+        if (select count(*) from public.appointments) <> 1 then raise exception 'Client cannot read own appointment'; end if;
+        if (select count(*) from public.telegram_accounts) <> 1 then raise exception 'Client cannot read own connection'; end if;
+        begin
+          update public.appointments set price=0;
+          raise exception 'FAIL: client forged booking price';
+        exception when insufficient_privilege then null; end;
+        begin
+          update public.telegram_accounts set telegram_id=123;
+          raise exception 'FAIL: client forged Telegram identity';
+        exception when insufficient_privilege then null; end;
+        begin
+          perform * from public.claim_notification_jobs();
+          raise exception 'FAIL: client claimed delivery jobs';
+        exception when insufficient_privilege then null; end;
+        begin
+          perform * from public.notification_jobs;
+          raise exception 'FAIL: client read delivery queue';
+        exception when insufficient_privilege then null; end;
+      end $$;
+      select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',true);
+      do $$ begin
+        if (select count(*) from public.appointments) <> 1 then raise exception 'Therapist cannot read session contact details'; end if;
+        if exists(select 1 from public.telegram_accounts) then raise exception 'FAIL: therapist read client Telegram identity'; end if;
+      end $$;
+      select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000003',true);
+      do $$ begin
+        if exists(select 1 from public.appointments) then raise exception 'FAIL: unrelated user read appointment contact details'; end if;
+      end $$;
+      reset role;
+      set local role service_role;
+      do $$ declare first_count integer; second_count integer; begin
+        select count(*) into first_count from public.claim_notification_jobs();
+        select count(*) into second_count from public.claim_notification_jobs();
+        if first_count = 0 or second_count > 0 then raise exception 'Job lease failed to prevent duplicate claims'; end if;
       end $$;
       rollback;
     `));

@@ -8,7 +8,7 @@ import PrivateAudio from '@/components/PrivateAudio';
 import { createVoiceRecorder } from '@/lib/voice';
 import { requestCall } from '@/components/AudioCalls';
 import { Mic, Send } from 'lucide-react';
-import { Photo, Modal } from '@/components/Shell';
+import { Photo, Modal, Page } from '@/components/Shell';
 import { bundles, discountedPrice, formatVoiceTime } from '@/lib/commerce';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -26,9 +26,8 @@ function TrueFullscreenChat() {
   const params = useSearchParams();
   const initialId = Number(params.get('therapist') || (people[0] ? people[0].id : 1));
 
-  const [selectedId, setSelectedId] = useState(
-    people.some(p => p.id === initialId) ? initialId : (people[0] ? people[0].id : 1)
-  );
+  const [chosenId, setSelectedId] = useState<number | null>(null);
+  const selectedId = chosenId ?? (people.some(p => p.id === initialId) ? initialId : people[0]?.id ?? initialId);
   const [showMobileList, setShowMobileList] = useState(!params.get('therapist'));
   const [searchQuery, setSearchQuery] = useState('');
   const [inputText, setInputText] = useState('');
@@ -269,7 +268,7 @@ function TrueFullscreenChat() {
     }
   }
 
-  if (!userId) return <main className="platform-main"><h1>Private messaging</h1><Link className="solid" href="/account">Sign in or create an account</Link></main>;
+  if (!userId) return <Page><section className="chat-signin-card"><span className="account-eyebrow">A PRIVATE SPACE TO TALK</span><h1>Start with a hello.</h1><p>Sign in or create a free account to message a therapist. Your conversations stay connected to you, on the website and in Telegram.</p><Link className="solid" href={`/account?next=${encodeURIComponent(params.get('therapist') ? `/chat?therapist=${initialId}` : '/chat')}`}>Sign in / Create account →</Link><p><Link href="/therapists">Explore therapists first</Link></p></section></Page>;
   if (ownTherapistId) return <main className="platform-main"><Link className="solid" href="/portal">Open your client conversations</Link></main>;
   if (!activePerson) return <main className="platform-main"><h1>No therapist selected</h1><p>Choose an approved practitioner from the directory. Newly registered practices appear after approval.</p><Link href="/therapists">Open directory</Link></main>;
 

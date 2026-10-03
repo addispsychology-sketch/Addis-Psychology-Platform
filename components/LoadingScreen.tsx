@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const quotes = [
@@ -43,19 +42,18 @@ const quotes = [
 ];
 
 export default function LoadingScreen() {
-  const pathname = usePathname();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [quoteIndex, setQuoteIndex] = useState(0);
   const [progress, setProgress] = useState(0);
 
-  // Trigger on initial load and route changes (7 seconds)
+  // A short, optional welcome only on the first home-page visit in this tab.
   useEffect(() => {
-    setLoading(true);
-    setProgress(0);
-    setQuoteIndex(Math.floor(Math.random() * quotes.length));
-
+    if (window.location.pathname !== '/' || window.location.hash.includes('tgWebApp')) return;
+    try { if (sessionStorage.getItem('addis-welcome-seen')) return; sessionStorage.setItem('addis-welcome-seen', '1'); } catch { return; }
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const show = setTimeout(() => { setLoading(true); setQuoteIndex(Math.floor(Math.random() * quotes.length)); }, 0);
     const startTime = Date.now();
-    const duration = 7000; // 7 seconds mindful transition
+    const duration = 1000;
 
     const interval = setInterval(() => {
       const elapsed = Date.now() - startTime;
@@ -64,12 +62,12 @@ export default function LoadingScreen() {
 
       if (pct >= 100) {
         clearInterval(interval);
-        setTimeout(() => setLoading(false), 200);
+        setLoading(false);
       }
     }, 40);
 
-    return () => clearInterval(interval);
-  }, [pathname]);
+    return () => { clearTimeout(show); clearInterval(interval); };
+  }, []);
 
   // Lock document scrolling while full-screen loading is active
   useEffect(() => {

@@ -1,0 +1,27 @@
+name: Deliver appointment and Telegram notifications
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: notifications
+  cancel-in-progress: false
+jobs:
+  deliver:
+    if: vars.NOTIFICATIONS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Run protected delivery worker
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          JOB_SECRET: ${{ secrets.NOTIFICATION_JOB_SECRET }}
+          VERCEL_BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        shell: bash
+        run: |
+          test -n "$APP_URL" && test -n "$JOB_SECRET"
+          curl --fail-with-body --silent --show-error --max-time 75 \
+            --request POST --header "Authorization: Bearer $JOB_SECRET" \
+            --header "x-vercel-protection-bypass: $VERCEL_BYPASS" \
+            "$APP_URL/api/jobs/notifications"

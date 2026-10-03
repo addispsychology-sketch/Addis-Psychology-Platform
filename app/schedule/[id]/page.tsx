@@ -1,24 +1,24 @@
 'use client';
 import { useState, useEffect, Suspense } from 'react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { usePlatform } from '@/components/Platform';
 import { Page, DemoNote, Photo } from '@/components/Shell';
 import { dateKey, shiftDate, slots, isFutureSlot } from '@/lib/calendar';
 import { discountedPrice } from '@/lib/commerce';
+import BookingDetails from '@/components/BookingDetails';
 
 function ScheduleInner() {
   const params = useParams();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const isQuick = searchParams.get('quick') === '1';
   const id = Number(params.id);
   const { t, people, settings, state, date, money } = usePlatform();
   const p = people.find(p => p.id === id);
   const [offset, setOffset] = useState(0);
-  const [day, setDay] = useState('');
-  const [time, setTime] = useState('');
-  const [medium, setMedium] = useState<'online' | 'inperson'>('online');
+  const [day, setDay] = useState(searchParams.get('date') || '');
+  const [time, setTime] = useState(searchParams.get('time') || '');
+  const [medium, setMedium] = useState<'online' | 'inperson'>(searchParams.get('medium') === 'inperson' ? 'inperson' : 'online');
   const conf = settings(id);
   const today = dateKey();
   const days = Array.from({ length: 7 }, (_, i) => shiftDate(today, offset * 7 + i));
@@ -134,11 +134,9 @@ function ScheduleInner() {
           <p>{t('Per 60-minute session', 'በ60 ደቂቃ ቀጠሮ')}{conf.discount > 0 && ` · ${conf.discount}% ${t('discount', 'ቅናሽ')}`}</p>
           {day && time && <p style={{ margin: '4px 0', fontSize: '13px', fontWeight: 600 }}>📅 {date(`${day}T12:00`)} · {time}</p>}
         </div>
-        <button className="solid" disabled={!day || !time || !available(day, time)}
-          onClick={() => router.push(`/payment/${id}?date=${day}&time=${time}&type=${medium}`)}>
-          {t('Review appointment →', 'ቀጠሮውን ይገምግሙ →')}
-        </button>
+        <p>{t('Complete your details below to request this session. Payment is not collected here.', 'ቀጠሮ ለመጠየቅ ከታች ዝርዝሮችዎን ይሙሉ።')}</p>
       </div>
+      <BookingDetails therapist={id} day={day} time={time} medium={medium} available={!!day && !!time && available(day, time)} />
     </Page>
   );
 }

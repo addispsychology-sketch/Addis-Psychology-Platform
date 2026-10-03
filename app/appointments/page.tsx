@@ -88,7 +88,7 @@ export default function Appointments() {
       <div className="receipts-section">
         <h2>{t('Package receipts', 'የጥቅል ደረሰኞች')}</h2>
         {!state.receipts.length ? (
-          <p className="muted">{t('Your demo purchases will appear here.', 'የማሳያ ግዢዎችዎ እዚህ ይታያሉ።')}</p>
+          <p className="muted">{t('Your payment receipts will appear here once online payments are available.', 'የማሳያ ግዢዎችዎ እዚህ ይታያሉ።')}</p>
         ) : (
           <div className="receipts-list">
             {state.receipts.map(r => {
@@ -98,7 +98,7 @@ export default function Appointments() {
                   <div className="receipt-details">
                     <strong>{th?.name || t('Therapist Package', 'የባለሙያ ጥቅል')}</strong>
                     <small>
-                      {date(r.at)} · {t('Demo receipt', 'የማሳያ ደረሰኝ')} #{r.id.slice(0, 8)}
+                      {date(r.at)} · {t('Receipt', 'የማሳያ ደረሰኝ')} #{r.id.slice(0, 8)}
                     </small>
                   </div>
                   <strong className="receipt-amount">{money(r.amount)}</strong>
@@ -110,10 +110,10 @@ export default function Appointments() {
       </div>
 
       {cancel && (
-        <Modal title={t('Cancel this demo booking?', 'ይህን የማሳያ ቀጠሮ ይሰርዙ?')} close={() => setCancel(null)}>
+        <Modal title={t('Cancel this appointment?', 'ይህን የማሳያ ቀጠሮ ይሰርዙ?')} close={() => setCancel(null)}>
           <p>
             {t(
-              'The time slot will become available again. No cancellation fee is charged in this demo.',
+              'The time slot will become available again. Your therapist will see the cancellation.',
               'ይህ ሰዓት እንደገና ሊያዝ ይችላል። በዚህ ማሳያ የስረዛ ክፍያ የለም።'
             )}
           </p>

@@ -6,14 +6,10 @@ import { usePlatform } from './Platform';
 import { ReactNode, useEffect, useRef, useState } from 'react';
 
 export function Header() {
-  const { t, lang, setLang, theme, setTheme } = usePlatform();
+  const { t, lang, setLang, theme, setTheme, userId } = usePlatform();
   const path = usePathname();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  // Close mobile menu on route change
-  useEffect(() => {
-    setMobileMenuOpen(false);
-  }, [path]);
+  const [menuPath, setMenuPath] = useState<string | null>(null);
+  const mobileMenuOpen = menuPath === path;
 
   const cycleTheme = () => {
     if (theme === 'white') setTheme('dark');
@@ -43,6 +39,7 @@ export function Header() {
 
         {/* Mobile quick controls on right */}
         <div className="mobile-header-actions">
+          <Link className="account-nav-link" href="/account">{userId ? t('Account', 'መለያ') : t('Sign in', 'ግባ')}</Link>
           <button
             type="button"
             className="theme-toggle-btn mobile-theme-btn"
@@ -64,7 +61,7 @@ export function Header() {
           </Link>
           <button
             className="mobile-hamburger-btn"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            onClick={() => setMenuPath(mobileMenuOpen ? null : path)}
             aria-expanded={mobileMenuOpen}
             aria-label={t('Toggle navigation', 'ማውጫ ክፈት')}
           >
@@ -81,7 +78,7 @@ export function Header() {
         <Link aria-current={path === '/therapists' ? 'page' : undefined} href="/therapists">
           {t('Therapists', 'ባለሙያዎች')}
         </Link>
-        <Link href="/account">{t('Account', 'መለያ')}</Link>
+        <Link className="account-nav-link" aria-current={path === '/account' ? 'page' : undefined} href="/account">{userId ? t('My account', 'መለያዬ') : t('Sign in / Join', 'ግባ / ተመዝገብ')}</Link>
         <Link aria-current={path === '/appointments' ? 'page' : undefined} href="/appointments">
           {t('My bookings', 'ቀጠሮዎቼ')}
         </Link>
@@ -125,8 +122,8 @@ export function DemoNote() {
       {t('SERVICE INFORMATION', 'የአገልግሎት መረጃ')}
       <span>
         {t(
-          'Messaging requires an account. Online payments and appointment booking are not enabled yet.',
-          'ለመወያየት መለያ ያስፈልጋል። የመስመር ላይ ክፍያና ቀጠሮ ገና አልተከፈቱም።'
+          'Appointment requests need therapist confirmation. Online payment is not collected here.',
+          'የቀጠሮ ጥያቄዎች የባለሙያውን ማረጋገጫ ይጠብቃሉ። እዚህ ክፍያ አይሰበሰብም።'
         )}
       </span>
     </div>

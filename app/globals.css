@@ -4492,3 +4492,86 @@ body .quick-action-strip p { color: var(--paper); }
   .registration-step-btn small { white-space: normal; }
 }
 body .native-date-bubble { background: var(--accent); color: var(--on-accent); }
+
+/* Account and booking: the same editorial borders, typography, and theme palette. */
+.account-layout { width: min(100%, 1080px); margin: 42px auto 64px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 470px); align-items: center; gap: clamp(32px, 5vw, 80px); }
+.account-eyebrow { display: block; font-family: 'Space Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 1.4px; line-height: 1.7; }
+.account-intro h1 { font-size: clamp(35px, 4.4vw, 62px); line-height: 1.05; margin: 22px 0; }
+.account-intro > p { max-width: 390px; font-size: 17px; line-height: 1.75; }
+.account-benefits { display: grid; gap: 16px; margin: 32px 0; }
+.account-benefits span, .account-help a, .account-connection strong, .account-connection a, .account-return { display: flex; align-items: center; gap: 10px; }
+.account-help { border-top: 2px solid var(--rule); padding-top: 24px; max-width: 390px; }
+.account-help > span { font-family: 'Space Mono', monospace; font-size: 11px; font-weight: 700; }
+.account-help p { font-size: 13px; line-height: 1.65; }
+.account-help a { font-size: 13px; font-weight: 700; text-decoration: underline; text-underline-offset: 4px; }
+.account-card { border: 3px solid var(--rule); padding: clamp(22px, 3vw, 38px); background: var(--surface); box-shadow: 9px 9px 0 var(--rule); min-width: 0; }
+.account-card-heading { display: flex; align-items: center; gap: 16px; margin-bottom: 25px; }
+.account-card-heading h2 { font-size: 27px; margin: 4px 0 0; }
+.account-symbol { display: grid; place-items: center; width: 48px; height: 48px; border: 2px solid var(--rule); flex: 0 0 auto; background: var(--surface-soft); }
+.account-tabs, .account-method { display: flex; gap: 0; margin-bottom: 22px; }
+.account-tabs button { flex: 1; border: 0; border-bottom: 2px solid var(--rule-soft); min-height: 44px; padding: 10px 6px; }
+.account-tabs button[aria-pressed='true'] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.account-method { gap: 18px; margin: 0; }
+.account-method button { border: 0; padding: 8px 0; font-size: 11px; border-bottom: 2px solid transparent; }
+.account-method button[aria-pressed='true'] { border-color: var(--rule); }
+.account-telegram, .account-submit { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 50px; }
+.account-telegram { background: var(--surface-soft); }
+.account-card label, .booking-details label { font-size: 11px; letter-spacing: .6px; }
+.account-card input:not([type='checkbox']), .booking-details input:not([type='checkbox']), .booking-details select { width: 100%; min-width: 0; font-family: inherit; font-size: 16px; min-height: 49px; margin-top: 8px; border: 2px solid var(--rule-soft); background: var(--surface); color: var(--text); padding: 12px; border-radius: 0; }
+.account-card input:focus, .booking-details input:focus, .booking-details select:focus { outline: 2px solid var(--ink); outline-offset: 2px; }
+.account-card label small, .booking-details label small { display: block; text-transform: none; letter-spacing: 0; font-size: 12px; line-height: 1.6; margin-top: 8px; font-weight: 400; }
+.account-password { position: relative; }
+.account-password input { padding-right: 52px !important; }
+.account-password button { position: absolute; right: 3px; bottom: 3px; width: 44px; height: 43px; padding: 0; display: grid; place-items: center; border: 0; }
+.account-submit { margin-top: 24px; }
+.account-text-button { background: transparent; border: 0; text-decoration: underline; text-underline-offset: 4px; font-size: 11px; padding: 16px 0 8px; }
+.account-small { font-size: 12px; line-height: 1.65; color: var(--muted-text); margin: 16px 0 0; }
+.account-small svg { display: inline; vertical-align: middle; margin-right: 4px; }
+.account-divider { display: flex; align-items: center; gap: 12px; margin: 22px 0; font-size: 11px; color: var(--muted-text); }
+.account-divider::before, .account-divider::after { content: ''; flex: 1; height: 1px; background: var(--rule-soft); }
+.account-shortcuts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 24px 0; }
+.account-shortcuts a { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; border: 2px solid var(--rule); padding: 16px 12px; font-size: 12px; font-weight: 700; }
+.account-connection { border: 2px solid var(--rule-soft); background: var(--surface-soft); padding: 16px; margin: 24px 0; }
+.account-connection strong { font-size: 13px; }
+.account-connection p { font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.account-connection a { font-size: 12px; font-weight: 700; text-decoration: underline; }
+.account-notifications { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 18px; }
+.account-notifications legend { font-family: 'Space Mono', monospace; font-size: 10px; text-transform: uppercase; margin-bottom: 10px; }
+.account-notifications label { display: flex; align-items: center; gap: 8px; margin: 0; }
+.account-notifications input, .booking-consent input { width: 20px; height: 20px; accent-color: var(--ink); flex-shrink: 0; }
+.account-optional { font-size: 10px; color: var(--muted-text); font-weight: 400; text-transform: none; }
+.account-notice { padding: 15px; border: 2px solid var(--rule); font-size: 13px; line-height: 1.6; margin: 20px 0 0; overflow-wrap: anywhere; background: var(--surface-soft); }
+.account-return { font-size: 13px; font-weight: 700; margin-bottom: 20px; }
+body .platform-nav a.account-nav-link, body .mobile-header-actions a.account-nav-link { background: var(--ink); color: var(--paper) !important; border: 2px solid var(--ink); padding: 10px 12px; white-space: nowrap; font-size: 11px; font-weight: 700; }
+.booking-details { margin: 32px 0; border: 3px solid var(--rule); background: var(--surface); padding: clamp(20px, 4vw, 40px); }
+.booking-details h2 { font-size: clamp(24px, 3vw, 36px); margin: 14px 0; }
+.booking-details > p { max-width: 650px; line-height: 1.7; }
+.booking-contact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.booking-consent { display: flex; align-items: flex-start; gap: 12px; padding: 18px 0; text-transform: none; font-size: 13px !important; line-height: 1.6; letter-spacing: 0 !important; }
+.booking-confirm-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.booking-confirm-row p { max-width: 380px; font-size: 12px; line-height: 1.7; }
+.booking-confirm-row button, .booking-details > a { display: inline-flex; align-items: center; justify-content: center; gap: 12px; min-height: 48px; }
+.booking-success { text-align: center; }
+.booking-success > svg { margin: 0 auto; }
+.booking-success > p { margin: 16px auto 24px; }
+.chat-signin-card { max-width: 650px; margin: 60px auto; text-align: center; border: 3px solid var(--rule); padding: clamp(24px, 5vw, 48px); box-shadow: 8px 8px 0 var(--rule); }
+.chat-signin-card h1 { font-size: clamp(30px, 5vw, 48px); }
+.chat-signin-card p { line-height: 1.75; }
+.chat-signin-card .solid { display: inline-block; margin-top: 16px; }
+@media (max-width: 850px) {
+  .account-layout { grid-template-columns: minmax(0, 1fr); max-width: 560px; margin-top: 20px; gap: 28px; }
+  .account-intro > p { max-width: none; font-size: 15px; }
+  .account-intro h1 { font-size: 40px; }
+  .account-benefits { display: none; }
+  .account-help { margin-top: 24px; max-width: none; padding-top: 16px; }
+  .account-card { box-shadow: 6px 6px 0 var(--rule); }
+}
+@media (max-width: 600px) {
+  .booking-contact-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .booking-confirm-row { flex-direction: column; align-items: stretch; gap: 8px; }
+  .mobile-header-actions .mobile-chat-pill, .mobile-header-actions .mobile-theme-btn { display: none; }
+  .mobile-header-actions { gap: 6px; }
+  .mobile-header-actions .account-nav-link { padding: 9px 7px; font-size: 10px; }
+  .account-layout { margin-bottom: 40px; }
+  .account-intro h1 { font-size: 35px; }
+}

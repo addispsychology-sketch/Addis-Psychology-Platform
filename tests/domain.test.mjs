@@ -1,12 +1,43 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
+import { createHmac } from 'node:crypto';
 // Import the pure TypeScript domain functions using Node's built-in type stripping.
 const commerceSource = readFileSync(new URL('../lib/commerce.ts', import.meta.url), 'utf8');
 const { stripTypeScriptTypes } = await import('node:module');
 const { addBundle, spendCredit, bundles, discountedPrice, migrateBalance, formatVoiceTime } = await import('data:text/javascript,' + encodeURIComponent(stripTypeScriptTypes(commerceSource)));
 const calendarSource = readFileSync(new URL('../lib/calendar.ts', import.meta.url), 'utf8');
 const { dateKey, shiftDate, slots, isFutureSlot } = await import('data:text/javascript,' + encodeURIComponent(stripTypeScriptTypes(calendarSource)));
+const { verifyMiniApp, equalSecret } = await import('data:text/javascript,' + encodeURIComponent(stripTypeScriptTypes(readFileSync(new URL('../lib/telegram-validation.ts', import.meta.url), 'utf8'))));
+const { normalizePhone, validateBooking } = await import('data:text/javascript,' + encodeURIComponent(stripTypeScriptTypes(readFileSync(new URL('../lib/booking-validation.ts', import.meta.url), 'utf8'))));
+
+test('Telegram authentication rejects forgery, stale data, duplicate keys, and missing signatures', () => {
+ const token = 'test-only-not-a-real-bot-token';
+ const now = Date.parse('2026-10-03T09:00:00Z');
+ const params = new URLSearchParams({ auth_date: String(now / 1000), user: JSON.stringify({ id: 123456, first_name: 'Test' }), query_id: 'query-test' });
+ const check = [...params.entries()].sort(([a], [b]) => a.localeCompare(b, 'en')).map(([k,v]) => `${k}=${v}`).join('\n');
+ params.set('hash', createHmac('sha256', createHmac('sha256', 'WebAppData').update(token).digest()).update(check).digest('hex'));
+ assert.deepEqual(verifyMiniApp(params.toString(), token, now), { id: 123456, name: 'Test' });
+ assert.throws(() => verifyMiniApp(params.toString(), 'wrong-token', now));
+ assert.throws(() => verifyMiniApp(params.toString(), token, now + 301000));
+ assert.throws(() => verifyMiniApp(params.toString(), token, now - 31000));
+ assert.throws(() => verifyMiniApp(params.toString() + '&user={}', token, now));
+ params.set('user', JSON.stringify({ id: 999, first_name: 'Forged' }));
+ assert.throws(() => verifyMiniApp(params.toString(), token, now));
+ assert.throws(() => verifyMiniApp('auth_date=1&user={}', token, now));
+ assert.equal(equalSecret('', ''), false);
+ assert.equal(equalSecret('a', 'aa'), false);
+});
+
+test('booking contact validation enforces consent, Addis time, valid dates, and international phone format', () => {
+ const now = Date.parse('2026-10-03T09:00:00Z');
+ const input = { therapist: 1, date: '2026-10-04', time: '09:00', name: 'Test client', phone: '0911 111 111', language: 'Amharic', medium: 'online', consent: true };
+ const booking = validateBooking(input, now);
+ assert.equal(booking.phone, '+251911111111');
+ assert.equal(booking.starts_at, '2026-10-04T06:00:00.000Z');
+ assert.equal(normalizePhone('+44 7700 900000'), '+447700900000');
+ for (const patch of [{consent:false},{phone:'123'},{name:'X'},{date:'2026-02-30'},{time:'25:00'},{time:'09:30'},{date:'2027-10-04'},{therapist:0},{medium:'unsupported'}]) assert.throws(() => validateBooking({...input,...patch}, now));
+});
 test('packages use the requested text and per-minute voice rates', () => {
  assert.deepEqual(bundles.map(b => b.price), [150, 420, 570]);
  assert.equal(bundles[1].voiceSeconds, 3600);

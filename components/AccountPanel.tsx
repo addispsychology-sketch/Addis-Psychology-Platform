@@ -1,30 +1,134 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { ArrowRight, Bell, CalendarDays, Eye, EyeOff, LockKeyhole, MessageCircle, ShieldCheck, UserRound } from 'lucide-react';
 import { getSupabase } from '@/lib/supabase';
+import { normalizePhone } from '@/lib/booking-validation';
+import { telegramSignIn } from '@/lib/telegram-client';
 import { usePlatform } from './Platform';
+
 export default function AccountPanel() {
-  const { userId } = usePlatform();
+  const { userId, ownTherapistId } = usePlatform();
+  const router = useRouter();
+  const params = useSearchParams();
+  const next = params.get('next') || '';
+  const destination = /^\/(?!\/)/.test(next) && !next.includes('\\') ? next : '';
+  const [mode, setMode] = useState<'signin' | 'signup' | 'reset'>('signin');
+  const [method, setMethod] = useState<'email' | 'phone'>('email');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [name, setName] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
-  async function submit(signup: boolean) {
+  const [connected, setConnected] = useState<number | null>(null);
+  const [prefs, setPrefs] = useState({ telegram_notifications: true, email_notifications: true });
+  const [profileReady, setProfileReady] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const bot = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME;
+
+  useEffect(() => {
+    let alive = true;
     const db = getSupabase();
-    if (!db) return setNotice('Complete the Supabase setup in SETUP.md first.');
-    setBusy(true);
-    try {
-      const { error } = signup ? await db.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin + '/account' } }) : await db.auth.signInWithPassword({ email, password });
-      setNotice(error ? error.message : signup ? 'Check your email to confirm your account, then sign in.' : 'Signed in. You can now open chat.');
-    } finally { setBusy(false); }
+    if (!db || !userId) return;
+    void Promise.all([db.auth.getUser(), db.from('telegram_accounts').select('telegram_id').eq('user_id', userId).maybeSingle(), db.from('account_preferences').select('telegram_notifications,email_notifications').eq('user_id', userId).maybeSingle()]).then(([auth, telegram, preferences]) => {
+      if (!alive) return;
+      const user = auth.data.user;
+      setName(String(user?.user_metadata.full_name || ''));
+      setEmail(user?.email?.endsWith('@telegram.addis.invalid') ? '' : user?.email || '');
+      setPhone(user?.phone ? '+' + user.phone.replace(/^\+/, '') : '');
+      setConnected(telegram.data?.telegram_id || null);
+      setPrefs(preferences.data || { telegram_notifications: true, email_notifications: true });
+      setProfileReady(!auth.error && !telegram.error && !preferences.error);
+    });
+    return () => { alive = false; };
+  }, [userId, revision]);
+
+  async function perform(action: () => Promise<void>) {
+    setBusy(true); setNotice('');
+    try { await action(); } catch (error) { setNotice(error instanceof Error ? error.message : 'Please try again.'); }
+    finally { setBusy(false); }
   }
-  return <section className="platform-main">
-    <h1>Your account</h1>
-    {userId ? <button className="solid" onClick={() => void getSupabase()?.auth.signOut()}>Sign out</button> : <form onSubmit={e => { e.preventDefault(); void submit(false); }}>
-      <label>Email<input type="email" required autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} /></label>
-      <label>Password<input type="password" minLength={12} required autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} /></label>
-      <button className="solid" disabled={busy}>Sign in</button>{' '}
-      <button type="button" disabled={busy || !email || password.length < 12} onClick={() => void submit(true)}>Create account</button>
-    </form>}
-    {notice && <p role="status">{notice}</p>}
+  async function submit() {
+    await perform(async () => {
+      const db = getSupabase();
+      if (!db) throw new Error('Account sign-in is being prepared. Please come back shortly.');
+      if (mode === 'reset') {
+        const { error } = await db.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin + '/account' });
+        if (error) throw error;
+        setNotice('If an account exists for that email, you’ll receive a reset link. Open it, then set your new password here.'); return;
+      }
+      const result = mode === 'signup' ? await db.auth.signUp({ email: email.trim(), password, options: { data: { full_name: name.trim() }, emailRedirectTo: window.location.origin + '/account' } }) : await db.auth.signInWithPassword(method === 'phone' ? { phone: normalizePhone(phone), password } : { email: email.trim(), password });
+      if (result.error) throw result.error;
+      setPassword('');
+      if (result.data.session) { setNotice('You’re signed in. Welcome to Addis.'); if (destination) router.replace(destination); }
+      else setNotice('One last step: open the confirmation email we sent you. Then come back and sign in.');
+    });
+  }
+  async function connectTelegram() {
+    await perform(async () => {
+      await telegramSignIn(!!userId);
+      setRevision(n => n + 1);
+      setNotice(userId ? 'Telegram connected. Open the bot and press Start to receive notifications.' : 'Welcome. Your Telegram account is ready.');
+      if (!userId && destination) router.replace(destination);
+    });
+  }
+  async function saveProfile() {
+    await perform(async () => {
+      const db = getSupabase();
+      if (!db || !userId) throw new Error('Please sign in.');
+      const { data: current } = await db.auth.getUser();
+      const update: { data: { full_name: string }; email?: string; password?: string } = { data: { full_name: name.trim() } };
+      if (email.trim() && email.trim() !== current.user?.email) update.email = email.trim();
+      if (password) { if (password.length < 12) throw new Error('Use at least 12 characters for your password.'); update.password = password; }
+      const { error } = await db.auth.updateUser(update, { emailRedirectTo: window.location.origin + '/account' });
+      if (error) throw error;
+      if (profileReady) {
+        const saved = await db.from('account_preferences').upsert({ user_id: userId, ...prefs });
+        if (saved.error) throw new Error('Your account was saved, but notification preferences could not be saved yet.');
+      }
+      setPassword('');
+      setNotice(update.email ? 'Check your email to confirm the new address. Your other changes are saved.' : 'Your changes are saved.');
+    });
+  }
+
+  return <section className="account-layout">
+    <div className="account-intro">
+      <span className="account-eyebrow">YOUR SPACE / ADDIS PSYCHOLOGY</span>
+      <h1>{userId ? <>A little space.<br />Just for you.</> : <>Good to<br />have you here.</>}</h1>
+      <p>{userId ? 'Your sessions, conversations, and preferences. Together in one place.' : 'Support starts with a simple hello. One account for your conversations, appointments, and peace of mind.'}</p>
+      <div className="account-benefits"><span><ShieldCheck size={19} /> Private conversations</span><span><CalendarDays size={19} /> Sessions that fit your day</span><span><Bell size={19} /> Reminders your way</span></div>
+      <div className="account-help"><span>ARE YOU A THERAPIST?</span><p>Use the same sign-in. Your workspace appears once your practice is connected.</p><Link href={userId && ownTherapistId ? '/portal' : '/register'}>{ownTherapistId ? 'Open therapist workspace' : 'Apply to join our therapists'} <ArrowRight size={15} /></Link></div>
+    </div>
+    <div className="account-card">
+      <div className="account-card-heading"><span className="account-symbol"><UserRound size={23} /></span><div><span className="account-eyebrow">{userId ? 'WELCOME BACK' : 'LET’S GET STARTED'}</span><h2>{userId ? 'Your account' : mode === 'signup' ? 'Join Addis' : mode === 'reset' ? 'Reset password' : 'Sign in'}</h2></div></div>
+      {!userId ? <>
+        {mode !== 'reset' && <div className="account-tabs"><button type="button" aria-pressed={mode === 'signin'} onClick={() => { setMode('signin'); setNotice(''); }}>Sign in</button><button type="button" aria-pressed={mode === 'signup'} onClick={() => { setMode('signup'); setMethod('email'); setNotice(''); }}>Create account</button></div>}
+        {bot && mode !== 'reset' && <><button className="account-telegram" disabled={busy} onClick={() => void connectTelegram()}><MessageCircle size={18} /> Continue with Telegram <ArrowRight size={16} /></button><p className="account-small">Already have an Addis account? Sign in below first, then connect Telegram.</p><div className="account-divider"><span>or use your {method}</span></div></>}
+        {mode === 'signin' && <div className="account-method"><button aria-pressed={method === 'email'} onClick={() => setMethod('email')}>Email</button><button aria-pressed={method === 'phone'} onClick={() => setMethod('phone')}>Phone number</button></div>}
+        <form onSubmit={e => { e.preventDefault(); void submit(); }}>
+          {mode === 'signup' && <label>Your name<input autoComplete="name" required minLength={2} maxLength={100} value={name} onChange={e => setName(e.target.value)} placeholder="What should we call you?" /></label>}
+          {method === 'phone' && mode === 'signin' ? <label>Phone number<input type="tel" autoComplete="tel" required value={phone} onChange={e => setPhone(e.target.value)} placeholder="+251 …" /><small>Use the number you verified through our Telegram bot.</small></label> : <label>Email address<input type="email" required autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" /></label>}
+          {mode !== 'reset' && <label>Password<div className="account-password"><input type={showPassword ? 'text' : 'password'} minLength={mode === 'signup' ? 12 : undefined} required autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} value={password} onChange={e => setPassword(e.target.value)} placeholder={mode === 'signup' ? 'At least 12 characters' : 'Your password'} /><button type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></label>}
+          <button className="solid account-submit" disabled={busy}>{busy ? 'One moment…' : mode === 'signup' ? 'Create my account' : mode === 'reset' ? 'Send reset link' : 'Sign in'} <ArrowRight size={17} /></button>
+        </form>
+        <button className="account-text-button" type="button" onClick={() => { setMode(mode === 'reset' ? 'signin' : 'reset'); setMethod('email'); setNotice(''); }}>{mode === 'reset' ? 'Back to sign in' : 'Forgot your password?'}</button>
+        <p className="account-small"><LockKeyhole size={13} /> Your browser remembers you after you sign in. Sign out on shared devices.</p>
+      </> : <>
+        <nav className="account-shortcuts" aria-label="Account shortcuts"><Link href={ownTherapistId ? '/portal' : '/appointments'}><CalendarDays size={19} /> {ownTherapistId ? 'Workspace' : 'Appointments'}</Link><Link href={ownTherapistId ? '/portal?tab=chat' : '/chat'}><MessageCircle size={19} /> Messages</Link></nav>
+        {destination && <Link className="account-return" href={destination}>Continue where you left off <ArrowRight size={16} /></Link>}
+        <form onSubmit={e => { e.preventDefault(); void saveProfile(); }}>
+          <label>Your name<input autoComplete="name" maxLength={100} value={name} onChange={e => setName(e.target.value)} /></label>
+          <label>Email for reminders<input type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Add an email address" /><small>We’ll ask you to confirm a new address.</small></label>
+          <label>New password <span className="account-optional">optional</span><input type="password" minLength={12} autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Leave blank to keep your password" /></label>
+          <div className="account-connection"><strong><MessageCircle size={18} /> Telegram {connected ? 'connected ✓' : 'not connected'}</strong><p>{connected ? `Telegram ID ${connected}. ${phone ? 'Your phone is ready for phone-and-password sign-in.' : 'To add phone sign-in, open the bot, send /phone, and share your own number. Then set a password above.'}` : 'Connect once to receive private message alerts and appointment reminders.'}</p>{connected && bot ? <a href={`https://t.me/${bot}?start=connect`} target="_blank" rel="noopener noreferrer">Open bot & press Start <ArrowRight size={14} /></a> : <button type="button" disabled={busy || !bot} onClick={() => void connectTelegram()}>{bot ? 'Connect Telegram' : 'Telegram setup in progress'}</button>}</div>
+          <fieldset className="account-notifications" disabled={!profileReady}><legend>Remind me through</legend><label><input type="checkbox" checked={prefs.telegram_notifications} onChange={e => setPrefs({ ...prefs, telegram_notifications: e.target.checked })} /> Telegram</label><label><input type="checkbox" checked={prefs.email_notifications} onChange={e => setPrefs({ ...prefs, email_notifications: e.target.checked })} /> Email</label></fieldset>
+          <button className="solid account-submit" disabled={busy}>{busy ? 'Saving…' : 'Save changes'} <ArrowRight size={17} /></button>
+        </form><button className="account-text-button" onClick={() => void perform(async () => { await getSupabase()?.auth.signOut(); setPassword(''); setNotice('You’re signed out.'); })}>Sign out</button>
+      </>}
+      {notice && <p className="account-notice" role="status">{notice}</p>}
+    </div>
   </section>;
 }

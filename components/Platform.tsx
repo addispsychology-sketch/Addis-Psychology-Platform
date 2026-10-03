@@ -7,6 +7,7 @@ import { languagesAm } from '@/lib/localization';
 import { Balance } from '@/lib/commerce';
 import { useMessaging, type Conversation } from '@/lib/useMessaging';
 import AudioCalls from './AudioCalls';
+import { useAppointments } from '@/lib/useAppointments';
 
 export type Appointment = {
   id: string;
@@ -17,6 +18,8 @@ export type Appointment = {
   status: 'pending' | 'confirmed' | 'cancelled' | 'completed';
   price: number;
   client: string;
+  phone?: string;
+  language?: string;
 };
 
 export type Settings = {
@@ -109,6 +112,7 @@ type API = {
   updateSettings: (id: number, s: Settings) => Promise<boolean>;
   book: (a: Omit<Appointment, 'id' | 'status'>) => boolean;
   updateAppointment: (id: string, patch: Partial<Appointment>) => void;
+  refreshAppointments: () => Promise<void>;
   save: (id: number) => void;
   register: (r: Registration) => Promise<number>;
   deleteTherapist: (id: number) => void;
@@ -119,6 +123,7 @@ const Context = createContext<API | null>(null);
 
 export function Platform({ children }: { children: ReactNode }) {
   const cloud = useMessaging();
+  const bookings = useAppointments(cloud.userId);
   const messages = cloud.messages;
   const [lang, setLanguage] = useState<'en' | 'am'>('en');
   const [theme, setThemeState] = useState<'white' | 'dark' | 'colorful'>('white');
@@ -224,7 +229,7 @@ export function Platform({ children }: { children: ReactNode }) {
     theme,
     setTheme,
     t,
-    state,
+    state: { ...state, appointments: bookings.appointments },
     ready,
     error,
     messages,
@@ -239,12 +244,8 @@ export function Platform({ children }: { children: ReactNode }) {
     reply: (id, text, audio) => cloud.send(id, audio ? 'voice' : 'text', audio || text || ''),
     updateSettings: cloud.updateSettings,
     book: () => { setError('Online booking is not enabled yet. Please contact the practice.'); return false; },
-    updateAppointment: (id, patch) => {
-      commit({
-        ...stateRef.current,
-        appointments: stateRef.current.appointments.map(a => (a.id === id ? { ...a, ...patch, id: a.id } : a)),
-      });
-    },
+    updateAppointment: (id, patch) => { void bookings.update(id, patch); },
+    refreshAppointments: bookings.refresh,
     save: id => {
       const s = stateRef.current;
       commit({
@@ -272,9 +273,9 @@ export function Platform({ children }: { children: ReactNode }) {
 
   return (
     <Context.Provider value={api}>
-      {(error || cloud.cloudError) && (
+      {(error || cloud.cloudError || bookings.error) && (
         <div className="system-note" role="alert">
-          {cloud.cloudError || error}
+          {cloud.cloudError || bookings.error || error}
         </div>
       )}
       <AudioCalls userId={cloud.userId} conversations={cloud.conversations} />
