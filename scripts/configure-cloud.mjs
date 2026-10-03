@@ -1,4 +1,5 @@
 import { pathToFileURL } from 'node:url';
+import { readFileSync } from 'node:fs';
 
 export function configuration(env) {
   const provider = env.VOICE_STORAGE || 'supabase';
@@ -43,7 +44,20 @@ export async function configureCloud(env, request = fetch) {
   if (Object.entries(desiredAuth).some(([key, value]) => auth[key] !== value)) await supabase('auth', 'PATCH', desiredAuth);
   const realtime = await supabase('realtime');
   if (!realtime.private_only) await supabase('realtime', 'PATCH', { private_only: true });
-  if (config.VOICE_STORAGE === 'supabase') return 'Authentication and private signaling configured. Voice storage uses the private voice-notes bucket created during initial setup.';
+
+  const templatePatch = {
+    mailer_subjects_confirmation: 'Confirm your email — Addis Psychology',
+    mailer_templates_confirmation_content: readFileSync(new URL('../supabase/templates/confirmation.html', import.meta.url), 'utf8'),
+    mailer_subjects_recovery: 'Reset your password — Addis Psychology',
+    mailer_templates_recovery_content: readFileSync(new URL('../supabase/templates/recovery.html', import.meta.url), 'utf8'),
+    mailer_subjects_email_change: 'Confirm your new email — Addis Psychology',
+    mailer_templates_email_change_content: readFileSync(new URL('../supabase/templates/email_change.html', import.meta.url), 'utf8'),
+  };
+  if (Object.entries(templatePatch).some(([key, value]) => auth[key] !== value)) {
+    await supabase('auth', 'PATCH', templatePatch);
+  }
+
+  if (config.VOICE_STORAGE === 'supabase') return 'Authentication, email templates, and private signaling configured. Voice storage uses the private voice-notes bucket created during initial setup.';
 
   const bucket = `/${config.R2_BUCKET_NAME}`;
   if (!await cloudflare(bucket, 'GET', undefined, true)) await cloudflare('', 'POST', { name: config.R2_BUCKET_NAME });
@@ -61,7 +75,7 @@ export async function configureCloud(env, request = fetch) {
   if (JSON.stringify(managed) !== JSON.stringify(rule)) {
     await cloudflare(`${bucket}/cors`, 'PUT', { rules: [...existingRules.filter(item => item.id !== rule.id), rule] });
   }
-  return 'Supabase authentication, private call signaling, and private R2 upload access are configured.';
+  return 'Supabase authentication, email templates, private call signaling, and private R2 upload access are configured.';
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

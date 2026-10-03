@@ -79,7 +79,11 @@ jobs:
         run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
       - name: Apply pending database migrations without resetting data
         run: supabase db push --yes
-      - name: Configure authentication, private signaling, and voice storage
+      - name: Generate branded HTML email templates
+        run: node scripts/render-auth-emails.mjs
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+      - name: Configure authentication, private signaling, email templates, and voice storage
         run: node scripts/configure-cloud.mjs
       - name: Publish the tested build
         run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
