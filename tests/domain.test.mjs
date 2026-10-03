@@ -39,10 +39,10 @@ test('booking contact validation enforces consent, Addis time, valid dates, and 
  for (const patch of [{consent:false},{phone:'123'},{name:'X'},{date:'2026-02-30'},{time:'25:00'},{time:'09:30'},{date:'2027-10-04'},{therapist:0},{medium:'unsupported'}]) assert.throws(() => validateBooking({...input,...patch}, now));
 });
 test('packages use the requested text and per-minute voice rates', () => {
- assert.deepEqual(bundles.map(b => b.price), [150, 420, 570]);
+ assert.deepEqual(bundles.map(b => b.price), [150, 420, 480, 570]);
  assert.equal(bundles[1].voiceSeconds, 3600);
  const original = { texts: 4, voiceSeconds: 60 };
- assert.deepEqual(addBundle(original, bundles[2]), { texts: 104, voiceSeconds: 3660 });
+ assert.deepEqual(addBundle(original, bundles[3]), { texts: 104, voiceSeconds: 3660 });
  assert.deepEqual(original, { texts: 4, voiceSeconds: 60 });
 });
 test('voice charges measured seconds, supports recordings over a minute, and rounds up once', () => {

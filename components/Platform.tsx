@@ -187,7 +187,15 @@ export function Platform({ children }: { children: ReactNode }) {
 
   const t = (en: string, am: string) => (lang === 'am' ? am : en);
 
-  const combinedTherapists = cloud.people;
+  const combinedTherapists = cloud.people.map(p => {
+    const s = cloud.cloudSettings[p.id];
+    if (!s) return p;
+    return {
+      ...p,
+      priceOnline: s.online !== undefined && s.online > 0 ? Number(s.online) : p.priceOnline,
+      priceInPerson: s.inperson !== undefined && s.inperson > 0 ? Number(s.inperson) : p.priceInPerson,
+    };
+  });
 
   const settings = (id: number): Settings => {
     const existing = cloud.cloudSettings[id];

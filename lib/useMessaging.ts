@@ -23,9 +23,15 @@ export function useMessaging() {
     const { data, error } = await db.from('practitioners').select('*');
     if (identity.current !== userId) return;
     if (error) { setCloudError(error.message); return; }
-    setPeople((data || []).map(p => ({ ...p.profile, badge: p.approved ? undefined : 'Pending approval', id: p.id })));
+    setPeople((data || []).map(p => ({
+      ...p.profile,
+      priceOnline: p.settings?.online != null && Number(p.settings.online) > 0 ? Number(p.settings.online) : p.profile?.priceOnline,
+      priceInPerson: p.settings?.inperson != null && Number(p.settings.inperson) > 0 ? Number(p.settings.inperson) : p.profile?.priceInPerson,
+      badge: p.approved ? undefined : 'Pending approval',
+      id: p.id
+    })));
     setOwnTherapistId(data?.find(p => p.user_id === userId)?.id ?? null);
-    setCloudSettings(Object.fromEntries((data || []).filter(p => Object.keys(p.settings).length).map(p => [p.id, p.settings])));
+    setCloudSettings(Object.fromEntries((data || []).filter(p => p.settings && Object.keys(p.settings).length).map(p => [p.id, p.settings])));
   }, [userId]);
   useEffect(() => {
     const db = getSupabase();
@@ -118,9 +124,21 @@ export function useMessaging() {
   async function updateSettings(id: number, settings: Settings) {
       const db = getSupabase();
       if (!db || id !== ownTherapistId) return false;
-      const { error } = await db.from('practitioners').update({ settings }).eq('id', id);
+      const existingPerson = people.find(p => p.id === id);
+      const updatedProfile = existingPerson ? {
+        ...existingPerson,
+        priceOnline: settings.online !== undefined && settings.online > 0 ? Number(settings.online) : existingPerson.priceOnline,
+        priceInPerson: settings.inperson !== undefined && settings.inperson > 0 ? Number(settings.inperson) : existingPerson.priceInPerson,
+      } : undefined;
+
+      const updatePayload: Record<string, unknown> = { settings };
+      if (updatedProfile) {
+        updatePayload.profile = updatedProfile;
+      }
+      const { error } = await db.from('practitioners').update(updatePayload).eq('id', id);
       if (error) { setCloudError(error.message); return false; }
       setCloudSettings(current => ({ ...current, [id]: settings }));
+      await refreshPeople();
       return true;
   }
   return { userId, people, ownTherapistId, conversations, messages, cloudSettings, cloudError, activeConversation, setActiveConversation, ensureConversation, send, register, updateSettings, loadMoreMessages: () => setHistoryLimit(n => n + 100) };

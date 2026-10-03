@@ -45,7 +45,7 @@ declare p public.payment_requests; begin
  perform 1 from public.wallets where user_id=p.user_id for update;
  if approve then
   if p.kind='wallet' then update public.wallets set available_cents=available_cents+p.principal_cents where user_id=p.user_id;
-  else insert into public.credit_lots(user_id,payment_id,texts,voice_seconds,initial_texts,initial_voice_seconds,principal_cents) values(p.user_id,p.id,case when p.kind in ('text','combined') then 100 else 0 end,case when p.kind in ('voice','combined') then 3600 else 0 end,case when p.kind in ('text','combined') then 100 else 0 end,case when p.kind in ('voice','combined') then 3600 else 0 end,p.principal_cents); end if;
+  else insert into public.credit_lots(user_id,payment_id,texts,voice_seconds,initial_texts,initial_voice_seconds,principal_cents) values(p.user_id,p.id,case when p.kind = 'comprehensive' then 250 when p.kind in ('text','combined') then 100 else 0 end,case when p.kind = 'comprehensive' then 900 when p.kind in ('voice','combined') then 3600 else 0 end,case when p.kind = 'comprehensive' then 250 when p.kind in ('text','combined') then 100 else 0 end,case when p.kind = 'comprehensive' then 900 when p.kind in ('voice','combined') then 3600 else 0 end,p.principal_cents); end if;
   insert into public.wallet_ledger(user_id,kind,amount_cents,reference) values(p.user_id,'payment verified',p.principal_cents,'payment:'||p.id);
  end if;
  update public.payment_requests set status=case when approve then 'approved' else 'rejected' end,reviewed_at=now(),reviewed_by=actor where id=p.id;

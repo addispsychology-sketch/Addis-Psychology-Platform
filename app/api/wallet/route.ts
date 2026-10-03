@@ -20,7 +20,7 @@ export async function POST(request: Request) {
    if(!['telebirr','cbe'].includes(input.method) || typeof input.destination!=='string' || !/^[0-9+ ()-]{7,30}$/.test(input.destination)) throw new Error('Enter the account or phone number to receive your refund.');
    const {error}=await db.rpc('request_refund',{client:user.id,credit_id:input.lotId||null,cents:input.lotId?null:birrCents(input.amount),payout_method:input.method,payout_destination:input.destination.trim()});if(error)throw new Error(error.message);
   } else if(input.action==='payment') {
-   if(!['text','voice','combined'].includes(input.kind) || !['telebirr','cbe'].includes(input.method) || typeof input.reference!=='string' || !/^[A-Za-z0-9-]{5,100}$/.test(input.reference.trim())) throw new Error('Enter the transaction reference from your bank or Telebirr receipt.');
+   if(!['text','voice','comprehensive','combined'].includes(input.kind) || !['telebirr','cbe'].includes(input.method) || typeof input.reference!=='string' || !/^[A-Za-z0-9-]{5,100}$/.test(input.reference.trim())) throw new Error('Enter the transaction reference from your bank or Telebirr receipt.');
    const principal=input.kind==='wallet'?birrCents(input.amount):PACKAGE_PRINCIPAL[input.kind as keyof typeof PACKAGE_PRINCIPAL];
    const {error}=await db.from('payment_requests').insert({user_id:user.id,kind:input.kind,principal_cents:principal,fee_cents:serviceFee(principal),method:input.method,reference:input.reference.trim().toUpperCase()});
    if(error)throw new Error(error.code==='23505'?'That transaction reference has already been submitted.':'Could not save this payment. Please try again.');

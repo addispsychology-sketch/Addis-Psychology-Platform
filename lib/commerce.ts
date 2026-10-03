@@ -6,6 +6,7 @@ export const VOICE_MINUTE_RATE = 7;
 export const bundles: Package[] = [
   { id: 'text', texts: 100, voiceSeconds: 0, price: 100 * TEXT_RATE },
   { id: 'voice', texts: 0, voiceSeconds: 3600, price: 60 * VOICE_MINUTE_RATE },
+  { id: 'comprehensive', texts: 250, voiceSeconds: 15 * 60, price: 250 * TEXT_RATE + 15 * VOICE_MINUTE_RATE },
   { id: 'combined', texts: 100, voiceSeconds: 3600, price: 100 * TEXT_RATE + 60 * VOICE_MINUTE_RATE },
 ];
 export function formatVoiceTime(seconds: number) {

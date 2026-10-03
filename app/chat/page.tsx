@@ -15,12 +15,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 
 
-const CONVERSATION_STARTERS = [
-  '🌊 I am feeling overwhelmed with stress lately and would love grounding advice.',
-  '🌿 How should I best prepare my thoughts for our upcoming session?',
-  '🕊️ I am navigating a difficult personal transition and finding it hard to focus.',
-  '✨ Can we practice a quick mindful breathing exercise together?',
-];
+
 
 function TrueFullscreenChat() {
   const { t, people, balance, messages, send, loadMoreMessages, userId, ownTherapistId, ensureConversation, lang, settings, money, buy, theme, setTheme } = usePlatform();
@@ -612,20 +607,6 @@ function TrueFullscreenChat() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Quick Suggestions Chips */}
-          <div className="native-suggestions-strip">
-            {CONVERSATION_STARTERS.map((text, i) => (
-              <button
-                key={i}
-                type="button"
-                className="native-suggestion-chip"
-                onClick={() => setInputText(text)}
-              >
-                {text.slice(0, 34)}…
-              </button>
-            ))}
-          </div>
-
           {/* Composer with Push-To-Talk Hold & Release */}
           <footer className="native-composer-dock">
             {/* Quick Balance & Package Link in Composer */}
@@ -661,14 +642,6 @@ function TrueFullscreenChat() {
               </div>
             )}
 
-            {!hasCredits ? (
-              <div className="native-locked-bar">
-                <span>{t('Prepaid credit package required to send messages.', 'መልዕክት ለመላክ ጥቅል ያስፈልጋል።')}</span>
-                <button className="solid compact" onClick={() => setQuickPackageModal(true)}>
-                  {t('Get Credits', 'ጥቅል ግዛ')}
-                </button>
-              </div>
-            ) : (<>
             {isHoldingVoice && (
               /* HOLDING VOICE ACTIVE STRIP (TELEGRAM / WHATSAPP PUSH-TO-TALK) */
               <div className={`native-voice-recording-strip ${isSlidToCancel ? 'canceling' : ''}`}>
@@ -697,14 +670,10 @@ function TrueFullscreenChat() {
                 <textarea
                   rows={1}
                   aria-label={t('Message box', 'የመልዕክት መጻፊያ')}
-                  placeholder={
-                    credits.texts > 0
-                      ? t('Type message… (Enter to send)', 'መልዕክት ይጻፉ…')
-                      : t('Add text credits to message', 'የጽሑፍ ክሬዲት ይጨምሩ')
-                  }
+                  placeholder={t('Type message… (Enter to send)', 'መልዕክት ይጻፉ…')}
                   value={inputText}
                   maxLength={2000}
-                  disabled={!credits.texts || isHoldingVoice}
+                  disabled={isHoldingVoice}
                   onChange={e => setInputText(e.target.value)}
                   onKeyDown={e => {
                     if (e.key === 'Enter' && !e.shiftKey) {
@@ -732,7 +701,7 @@ function TrueFullscreenChat() {
                 <button
                   type="button"
                   className="solid native-send-btn"
-                  disabled={sending || !inputText.trim() || !credits.texts}
+                  disabled={sending || !inputText.trim()}
                   onClick={() => handleSendText()}
                   aria-label={t('Send message', 'መልዕክት ላክ')}
                 >
@@ -740,7 +709,6 @@ function TrueFullscreenChat() {
                 </button>
               </div>
               <small className="voice-composer-hint">{t('Hold to record · Release to send · Slide left to cancel', 'ለመቅዳት ማይክሮፎኑን ይያዙ · ለመላክ ይልቀቁ · ለመሰረዝ ወደ ግራ ይጎትቱ')}</small>
-            </>)}
           </footer>
         </section>
       </div>

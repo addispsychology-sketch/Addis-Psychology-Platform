@@ -1,7 +1,7 @@
 export const TERMS_VERSION = '2026-10-03.2';
 export const PAYMENT_DESTINATIONS = { telebirr: '0990171738', cbe: '1000605180519' } as const;
 export const PAYEE = 'Dawit Aynalem';
-export const PACKAGE_PRINCIPAL = { text: 15000, voice: 42000, combined: 57000 } as const;
+export const PACKAGE_PRINCIPAL = { text: 15000, voice: 42000, comprehensive: 48000, combined: 57000 } as const;
 export function birrCents(value: unknown) {
  const text = String(value ?? '');
  if (!/^\d{1,7}(?:\.\d{1,2})?$/.test(text)) throw new Error('Enter an amount with at most two decimal places.');

@@ -5,7 +5,7 @@ import { CheckCircle2, Copy, ArrowRight } from 'lucide-react';
 import { authenticatedFetch } from '@/lib/supabase';
 import { usePlatform } from './Platform';
 import { PACKAGE_PRINCIPAL, PAYEE, PAYMENT_DESTINATIONS, moneyCents, serviceFee } from '@/lib/payment-policy';
-export default function PaymentCheckout({ kind = 'text' }: { kind?: 'text' | 'voice' | 'combined' }) {
+export default function PaymentCheckout({ kind = 'text' }: { kind?: 'text' | 'voice' | 'comprehensive' | 'combined' }) {
   const { userId, refreshWallet } = usePlatform();
   const [method, setMethod] = useState<'telebirr' | 'cbe'>('telebirr');
   const [reference, setReference] = useState('');
@@ -14,8 +14,9 @@ export default function PaymentCheckout({ kind = 'text' }: { kind?: 'text' | 'vo
   const [submitted, setSubmitted] = useState(false);
   const [copied, setCopied] = useState(false);
   const principal = PACKAGE_PRINCIPAL[kind];
-  if (submitted) return <section className="care-card payment-success" role="status"><CheckCircle2 size={38} /><span className="eyebrow">TRANSFER SUBMITTED</span><h2>We’ll take it from here.</h2><p>Addis Psychology will verify your transfer. Your {kind === 'combined' ? 'text + voice' : kind} credits will appear in your wallet once approved.</p><Link className="solid" href="/wallet">Track my payment <ArrowRight size={16} /></Link><Link href="/therapists">Explore therapists while you wait →</Link></section>;
-  return <section className="care-card payment-checkout"><span className="eyebrow">YOUR {kind === 'combined' ? 'TEXT + VOICE' : kind.toUpperCase()} PACKAGE</span><h2>One simple transfer.</h2><p>Pay the total below, then share the reference from your receipt.</p>
+  const packageLabel = kind === 'comprehensive' ? '250 texts + 15 min voice' : kind === 'combined' ? 'text + voice' : kind;
+  if (submitted) return <section className="care-card payment-success" role="status"><CheckCircle2 size={38} /><span className="eyebrow">TRANSFER SUBMITTED</span><h2>We’ll take it from here.</h2><p>Addis Psychology will verify your transfer. Your {packageLabel} credits will appear in your wallet once approved.</p><Link className="solid" href="/wallet">Track my payment <ArrowRight size={16} /></Link><Link href="/therapists">Explore therapists while you wait →</Link></section>;
+  return <section className="care-card payment-checkout"><span className="eyebrow">YOUR {packageLabel.toUpperCase()} PACKAGE</span><h2>One simple transfer.</h2><p>Pay the total below, then share the reference from your receipt.</p>
     <dl className="payment-breakdown"><div><dt>Package</dt><dd>{moneyCents(principal)}</dd></div><div><dt>Service fee · 5%</dt><dd>{moneyCents(serviceFee(principal))}</dd></div><div className="payment-total"><dt>Total to pay</dt><dd>{moneyCents(principal + serviceFee(principal))}</dd></div></dl>
     {!userId ? <Link className="solid" href="/account?next=/packages">Sign in to continue <ArrowRight size={16} /></Link> : <form onSubmit={async e => {
       e.preventDefault(); if (busy) return; setBusy(true); setNotice('');

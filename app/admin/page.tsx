@@ -43,6 +43,18 @@ interface LivePractice {
   } | null;
 }
 
+interface LivePayment {
+  id: string;
+  user_id: string;
+  kind: string;
+  principal_cents: number;
+  fee_cents?: number;
+  method: string;
+  reference: string;
+  status: 'pending' | 'approved' | 'rejected';
+  created_at: string;
+}
+
 export default function AdminPortal() {
   const { t, people, state, messages, money, date, settings, deleteTherapist } = usePlatform();
   const [passphrase, setPassphrase] = useState('');
@@ -53,6 +65,9 @@ export default function AdminPortal() {
   // Live admin data from /api/admin
   const [liveUsers, setLiveUsers] = useState<AdminUser[]>([]);
   const [livePractices, setLivePractices] = useState<LivePractice[]>([]);
+  const [livePayments, setLivePayments] = useState<LivePayment[]>([]);
+  const [paymentFilter, setPaymentFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [paymentSearch, setPaymentSearch] = useState('');
   const [adminNotice, setAdminNotice] = useState('');
   const [busyAction, setBusyAction] = useState(false);
 
@@ -74,11 +89,30 @@ export default function AdminPortal() {
       if(!response.ok) throw new Error(data.error || 'Administrator access required.');
       setLiveUsers(data.users || []);
       setLivePractices(data.practices || []);
+      setLivePayments(data.payments || []);
       setBookings(readBookings(data.appointments || []));
       setPassphrase(secret);
       setAuth(true);
     } catch(error) {
       setAuthError(error instanceof Error ? error.message : 'Please try again.');
+    }
+  }
+  async function handleReviewPayment(id: string, approve: boolean) {
+    setBusyAction(true);
+    setAdminNotice('');
+    try {
+      const response = await adminRequest({
+        method: 'POST',
+        body: JSON.stringify({ action: 'payment', id, verified: true, approve })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Failed to review payment.');
+      setLivePayments(current => current.map(p => p.id === id ? { ...p, status: approve ? 'approved' : 'rejected' } : p));
+      setAdminNotice(approve ? 'Payment request approved and wallet/credits credited to client!' : 'Payment request marked as rejected.');
+    } catch (error) {
+      setAdminNotice(error instanceof Error ? error.message : 'Could not review payment.');
+    } finally {
+      setBusyAction(false);
     }
   }
   async function handleApprovePractice(id: number, approve: boolean) {
@@ -215,13 +249,15 @@ export default function AdminPortal() {
   const allMessages = messages;
   const pendingPracticesCount = livePractices.filter(p => !p.approved).length;
 
+  const pendingPaymentsCount = livePayments.filter(p => p.status === 'pending').length;
+
   const tabs: [Tab, string, number?][] = [
     ['overview', t('Overview', 'አጠቃላይ')],
     ['therapists', t('Therapists & Applicants', 'ባለሙያዎችና ማመልከቻዎች'), pendingPracticesCount || undefined],
     ['clients', t('Client Accounts', 'የደንበኛ መለያዎች'), liveUsers.length || undefined],
     ['bookings', t('Bookings', 'ቀጠሮዎች'), pendingAppts.length],
     ['messages', t('Messages', 'መልዕክቶች'), allMessages.length],
-    ['packages', t('Package sales', 'ጥቅሎች')],
+    ['packages', t('Package sales', 'ጥቅሎች'), pendingPaymentsCount || undefined],
     ['settings', t('Settings', 'ቅንብሮች')],
   ];
 
@@ -903,54 +939,190 @@ export default function AdminPortal() {
           {/* ══ PACKAGES ══════════════════════════════════════════ */}
           {tab === 'packages' && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-              <h1>{t('Voice & Text Package Orders', 'የጥቅሎች ሽያጭ')}</h1>
-              <div className="admin-metrics" style={{ gridTemplateColumns: 'repeat(3,minmax(0,1fr))', margin: '20px 0' }}>
-                <div className="admin-metric-card">
-                  <small>{t('Total package revenue', 'ጠቅላላ ጥቅሎች')}</small>
-                  <strong>{money(totalRevenue)}</strong>
+              <h1>{t('Package Sales & Payment Approvals', 'የጥቅሎች ሽያጭና ክፍያ ማጽደቅ')}</h1>
+
+              {/* ── Payment Requests (requires admin action) ── */}
+              <div style={{ margin: '24px 0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: '20px' }}>
+                      {t('Pending Payment Requests', 'ያልተፈቀዱ ክፍያዎች')}
+                      {pendingPaymentsCount > 0 && (
+                        <span className="portal-tab-badge" style={{ marginLeft: '10px', fontSize: '12px', background: 'var(--danger)', color: '#fff' }}>
+                          {pendingPaymentsCount} {t('pending', 'በጠባቂ')}
+                        </span>
+                      )}
+                    </h2>
+                    <p className="muted" style={{ margin: '4px 0 0', fontSize: '13px' }}>
+                      {t('Verify Telebirr or CBE reference, then approve or reject each request. Approval credits the client wallet immediately.', 'የTelebirr ወይም CBE ዋቢ ቁጥር ካረጋገጡ በኋላ ያጽድቁ ወይም ይሰርዙ። ሲፈቀድ ወዲያው ለደንበኛ ክሬዲት ይደርሳል።')}
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {(['all', 'pending', 'approved', 'rejected'] as const).map(f => (
+                      <button
+                        key={f}
+                        type="button"
+                        aria-pressed={paymentFilter === f}
+                        onClick={() => setPaymentFilter(f)}
+                        style={{ fontSize: '11px', padding: '6px 14px', textTransform: 'capitalize' }}
+                      >
+                        {f === 'all' ? t('All', 'ሁሉም') : f === 'pending' ? t('Pending', 'በጠባቂ') : f === 'approved' ? t('Approved', 'ተፈቅዷል') : t('Rejected', 'ተሰርዟል')}
+                      </button>
+                    ))}
+                    <input
+                      type="search"
+                      placeholder={t('Search reference…', 'ዋቢ ቁጥር ፈልግ…')}
+                      value={paymentSearch}
+                      onChange={e => setPaymentSearch(e.target.value)}
+                      style={{ margin: 0, padding: '6px 12px', fontSize: '12px', minWidth: '180px' }}
+                    />
+                  </div>
                 </div>
-                <div className="admin-metric-card">
-                  <small>{t('Total purchases', 'ጠቅላላ ግዢዎች')}</small>
-                  <strong>{state.receipts.length}</strong>
-                </div>
-                <div className="admin-metric-card">
-                  <small>{t('Avg per purchase', 'አማካኝ')}</small>
-                  <strong>
-                    {state.receipts.length ? money(Math.round(totalRevenue / state.receipts.length)) : '—'}
-                  </strong>
-                </div>
+
+                {livePayments.length === 0 ? (
+                  <div className="empty-state">
+                    <p>{t('No payment requests yet.', 'ምንም ክፍያ ጥያቄ የለም።')}</p>
+                  </div>
+                ) : (
+                  (() => {
+                    const filtered = livePayments
+                      .filter(p => paymentFilter === 'all' || p.status === paymentFilter)
+                      .filter(p => !paymentSearch.trim() || p.reference.toLowerCase().includes(paymentSearch.toLowerCase()));
+                    return filtered.length === 0 ? (
+                      <div className="empty-state"><p>{t('No matching requests.', 'ምንም አልተገኘም።')}</p></div>
+                    ) : (
+                      <table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th>{t('Date', 'ቀን')}</th>
+                            <th>{t('Client ID', 'ደንበኛ')}</th>
+                            <th>{t('Package', 'ጥቅል')}</th>
+                            <th>{t('Amount', 'ዋጋ')}</th>
+                            <th>{t('Method · Reference', 'ዘዴ · ዋቢ')}</th>
+                            <th>{t('Status', 'ሁኔታ')}</th>
+                            <th>{t('Actions', 'ድርጊቶች')}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filtered.map(p => {
+                            const totalCents = p.principal_cents + (p.fee_cents || 0);
+                            const userEmail = liveUsers.find(u => u.id === p.user_id)?.email || p.user_id.slice(0, 12) + '…';
+                            return (
+                              <tr key={p.id} style={{ background: p.status === 'pending' ? 'var(--accent-soft, #fffdf2)' : undefined }}>
+                                <td data-label={t('Date', 'ቀን')} style={{ fontSize: '12px', fontFamily: 'Space Mono, monospace', whiteSpace: 'nowrap' }}>
+                                  {new Date(p.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                </td>
+                                <td data-label={t('Client ID', 'ደንበኛ')}>
+                                  <span style={{ fontSize: '12px', fontFamily: 'Space Mono, monospace' }}>{userEmail}</span>
+                                </td>
+                                <td data-label={t('Package', 'ጥቅል')} style={{ textTransform: 'capitalize', fontWeight: 700 }}>
+                                  {p.kind === 'comprehensive' ? '⭐ Comprehensive Care' : p.kind}
+                                </td>
+                                <td data-label={t('Amount', 'ዋጋ')}>
+                                  <strong>{money(totalCents / 100)}</strong>
+                                  <br />
+                                  <span style={{ fontSize: '11px', color: 'var(--muted-text)' }}>
+                                    {money(p.principal_cents / 100)} + {money((p.fee_cents || 0) / 100)} fee
+                                  </span>
+                                </td>
+                                <td data-label={t('Method · Reference', 'ዘዴ · ዋቢ')}>
+                                  <span style={{ display: 'inline-block', fontSize: '10px', fontWeight: 700, padding: '2px 6px', background: p.method === 'telebirr' ? '#6c2bd9' : '#1a5c9a', color: '#fff', marginBottom: '4px', borderRadius: '2px' }}>
+                                    {p.method.toUpperCase()}
+                                  </span>
+                                  <br />
+                                  <span style={{ fontFamily: 'Space Mono, monospace', fontSize: '12px', fontWeight: 700, letterSpacing: '0.05em' }}>
+                                    {p.reference}
+                                  </span>
+                                </td>
+                                <td data-label={t('Status', 'ሁኔታ')}>
+                                  <span className={`admin-badge ${p.status === 'pending' ? 'amber' : p.status === 'approved' ? 'green' : 'grey'}`} style={{ textTransform: 'capitalize' }}>
+                                    {p.status === 'pending' ? '⏳ ' + t('Pending', 'በጠባቂ') : p.status === 'approved' ? '✓ ' + t('Approved', 'ተፈቅዷል') : '✕ ' + t('Rejected', 'ተሰርዟል')}
+                                  </span>
+                                </td>
+                                <td data-label={t('Actions', 'ድርጊቶች')}>
+                                  {p.status === 'pending' ? (
+                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                      <button
+                                        className="solid"
+                                        disabled={busyAction}
+                                        onClick={() => void handleReviewPayment(p.id, true)}
+                                        style={{ fontSize: '11px', padding: '6px 12px', background: '#2e7d32', borderColor: '#2e7d32' }}
+                                      >
+                                        ✓ {t('Approve & Credit', 'አጽድቅና ጥቅል ስጥ')}
+                                      </button>
+                                      <button
+                                        disabled={busyAction}
+                                        onClick={() => void handleReviewPayment(p.id, false)}
+                                        style={{ fontSize: '10px', padding: '4px 8px', color: 'var(--danger)', borderColor: 'var(--danger)' }}
+                                      >
+                                        ✕ {t('Reject', 'ሰርዝ')}
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <span style={{ fontSize: '11px', color: 'var(--muted-text)' }}>{t('Reviewed', 'ታይቷል')}</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    );
+                  })()
+                )}
               </div>
 
-              {!state.receipts.length ? (
-                <div className="empty-state">
-                  <p>{t('No package purchases yet.', 'ጥቅሎች አልተገዙም።')}</p>
+              {/* ── Package Revenue Metrics ── */}
+              <div style={{ borderTop: '3px solid var(--ink)', paddingTop: '24px', marginTop: '32px' }}>
+                <h2 style={{ margin: '0 0 16px' }}>{t('Revenue Summary', 'የሽያጭ ማጠቃለያ')}</h2>
+                <div className="admin-metrics" style={{ gridTemplateColumns: 'repeat(3,minmax(0,1fr))', margin: '0 0 20px' }}>
+                  <div className="admin-metric-card">
+                    <small>{t('Total package revenue', 'ጠቅላላ ጥቅሎች')}</small>
+                    <strong>{money(totalRevenue)}</strong>
+                  </div>
+                  <div className="admin-metric-card">
+                    <small>{t('Total purchases', 'ጠቅላላ ግዢዎች')}</small>
+                    <strong>{state.receipts.length}</strong>
+                  </div>
+                  <div className="admin-metric-card">
+                    <small>{t('Avg per purchase', 'አማካኝ')}</small>
+                    <strong>
+                      {state.receipts.length ? money(Math.round(totalRevenue / state.receipts.length)) : '—'}
+                    </strong>
+                  </div>
                 </div>
-              ) : (
-                <table className="admin-table">
-                  <thead>
-                    <tr>
-                      <th>{t('Date', 'ቀን')}</th>
-                      <th>{t('Therapist', 'ባለሙያ')}</th>
-                      <th>{t('Package', 'ጥቅል')}</th>
-                      <th>{t('Amount', 'ዋጋ')}</th>
-                      <th>{t('Receipt ID', 'ደረሰኝ')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {state.receipts.map(r => (
-                      <tr key={r.id}>
-                        <td data-label={t('Date', 'ቀን')}>{date(r.at)}</td>
-                        <td data-label={t('Therapist', 'ባለሙያ')}>{people.find(p => p.id === r.therapist)?.name}</td>
-                        <td data-label={t('Package', 'ጥቅል')} style={{ textTransform: 'capitalize', fontWeight: 600 }}>{r.bundle}</td>
-                        <td data-label={t('Amount', 'ዋጋ')}>{money(r.amount)}</td>
-                        <td data-label={t('Receipt ID', 'ደረሰኝ')} style={{ fontSize: '11px', fontFamily: 'Space Mono,monospace', color: 'var(--muted-text)' }}>
-                          {r.id.slice(0, 12)}…
-                        </td>
+
+                {!state.receipts.length ? (
+                  <div className="empty-state">
+                    <p>{t('No package purchases yet.', 'ጥቅሎች አልተገዙም።')}</p>
+                  </div>
+                ) : (
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>{t('Date', 'ቀን')}</th>
+                        <th>{t('Therapist', 'ባለሙያ')}</th>
+                        <th>{t('Package', 'ጥቅል')}</th>
+                        <th>{t('Amount', 'ዋጋ')}</th>
+                        <th>{t('Receipt ID', 'ደረሰኝ')}</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
+                    </thead>
+                    <tbody>
+                      {state.receipts.map(r => (
+                        <tr key={r.id}>
+                          <td data-label={t('Date', 'ቀን')}>{date(r.at)}</td>
+                          <td data-label={t('Therapist', 'ባለሙያ')}>{people.find(p => p.id === r.therapist)?.name}</td>
+                          <td data-label={t('Package', 'ጥቅል')} style={{ textTransform: 'capitalize', fontWeight: 600 }}>{r.bundle}</td>
+                          <td data-label={t('Amount', 'ዋጋ')}>{money(r.amount)}</td>
+                          <td data-label={t('Receipt ID', 'ደረሰኝ')} style={{ fontSize: '11px', fontFamily: 'Space Mono,monospace', color: 'var(--muted-text)' }}>
+                            {r.id.slice(0, 12)}…
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
             </motion.div>
           )}
 
