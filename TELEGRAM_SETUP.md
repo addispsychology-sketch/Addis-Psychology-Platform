@@ -1,3 +1,14 @@
+## Current connection status (3 October 2026)
+
+- Public website: https://addis-psychology-platform.vercel.app
+- Telegram webhook and Open Addis menu connected to the public website. Send a fresh `/start` for Mini App buttons; old messages retain their previous links.
+- Telegram publishing administrator configured for the owner-supplied ID. Use `/admin` to prepare previews. Publishing requires a channel, which the owner has not created yet.
+- SMTP authentication verified from production; the owner still needs to test receiving a real signup email.
+- GitHub notification schedule enabled and a verification run requested. Scheduled Actions may run late; reminders are not guaranteed to arrive at an exact minute.
+- Browser Telegram login still needs the BotFather Login client ID and allowed website origin. Telegram Mini App login uses signed Telegram data independently.
+- Main Mini App setup in BotFather is still needed for channel promotion links. Set its URL to the public website above.
+- Website admin console stays restricted until server-enforced admin roles are implemented. Telegram publishing access is separate.
+
 # Your Addis website and Telegram bot
 
 The app uses the same private Supabase account on the website and inside Telegram. A Telegram ID typed into a form is never accepted as proof of identity.
@@ -35,7 +46,7 @@ npm run setup:messaging -- --auth-email
 npm run setup:messaging -- --telegram
 ```
 
-`--email` checks SMTP without sending mail. `--auth-email` requires `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_ID`; it configures Supabase confirmation/recovery emails and enables phone login while keeping email confirmation on. Appointment emails use the app’s SMTP settings separately. The Gmail app password should contain no spaces in Vercel or Supabase.
+`--email` checks SMTP without sending mail. `--auth-email` requires `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_ID`; it configures Supabase confirmation/recovery emails while keeping email confirmation on. Appointment emails use the app’s SMTP settings separately. The Gmail app password should contain no spaces in Vercel or Supabase.
 
 Before `--telegram`, publish the app and ensure `/api/telegram/webhook` is reachable by Telegram without Vercel login protection. The route itself rejects requests without the webhook secret. The setup script refuses to replace a webhook belonging to a different URL unless the existing integration has been reviewed and `--replace-webhook` is explicitly provided. It preserves pending updates.
 
@@ -63,3 +74,5 @@ Private tables `notification_jobs`, `telegram_updates`, and `telegram_admin_draf
 - Reliable calls still need TURN setup. Credit payments remain disabled until a payment provider is connected.
 
 No fake users, sample therapists, or sample bookings are inserted by this setup.
+
+Phone login uses a Telegram-verified contact mapped to the same Supabase account. No SMS provider is needed. Server-only database limits allow eight attempts per phone and forty per source address per fifteen minutes. Booking phone numbers remain unverified contact information.

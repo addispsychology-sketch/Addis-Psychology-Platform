@@ -49,6 +49,11 @@ export async function handleBotUpdate(update: BotUpdate) {
     const { error } = await db.from('telegram_accounts').update({ chat_id: chat }).eq('user_id', account.user_id);
     if (error) throw new Error('Database unavailable.');
   }
+  const isAdmin = adminIds().includes(String(actor));
+  if ((command === '/start' || command === '/help') && !callback) {
+    await say(chat, '🌿 Welcome to Addis Psychology\n\nA little space for you. Find a therapist, request a session, or continue a private conversation.\n\nOpen My account below to connect Telegram. Use /phone to enable phone sign-in, /stop to pause notifications.' + (isAdmin ? '\n\nAdministrator: /admin' : ''), menu());
+    return;
+  }
   if (command === '/stop' && account && !callback) {
     await db.from('account_preferences').upsert({ user_id: account.user_id, telegram_notifications: false });
     await say(chat, '🔕 Telegram notifications paused. You can turn them back on in Account.', menu()); return;
@@ -57,14 +62,13 @@ export async function handleBotUpdate(update: BotUpdate) {
     if (!account) { await say(chat, 'First open My account below and connect Telegram, then use /phone again.', menu()); return; }
     if (message.contact.user_id !== actor) { await say(chat, 'Use the “Share my phone” button to share your own verified number.'); return; }
     const phone = normalizePhone('+' + message.contact.phone_number.replace(/^\+/, ''));
-    const { error } = await db.auth.admin.updateUserById(account.user_id, { phone, phone_confirm: true });
+    const { error } = await db.from('telegram_accounts').update({ verified_phone: phone }).eq('user_id', account.user_id);
     await say(chat, error ? 'This phone number could not be connected. It may belong to another Addis account. Your existing sign-in still works.' : '✓ Phone verified. Open Account and set a password. You can then sign in on the website using this phone number and password.', { remove_keyboard: true });
     return;
   }
   if (command === '/phone' && !callback) {
     await say(chat, 'Share your own phone number to enable phone-and-password sign-in. Your number stays private.', { keyboard: [[{ text: 'Share my phone', request_contact: true }]], resize_keyboard: true, one_time_keyboard: true }); return;
   }
-  const isAdmin = adminIds().includes(String(actor));
   if (isAdmin && !callback && (command === '/admin' || command === '/announce' || command === '/promote')) {
     if (command === '/admin') {
       await say(chat, '📣 Publishing studio\n\nCreate an announcement, choose its destination button, then preview before publishing.\n\nFor a therapist promotion, send /promote followed by the therapist’s directory ID. Upload a photo or video with a caption when prompted.', { inline_keyboard: [[{ text: '✍️ New announcement', callback_data: 'draft:new' }]] }); return;

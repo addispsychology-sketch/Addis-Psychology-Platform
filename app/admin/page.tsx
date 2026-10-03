@@ -12,7 +12,7 @@ type Tab = 'overview' | 'therapists' | 'bookings' | 'messages' | 'packages' | 's
 
 export default function AdminPortal() {
   const { t, people, state, messages, money, date, settings, updateAppointment, deleteTherapist } = usePlatform();
-  const auth = false; // Administration is restricted to the Supabase dashboard until server roles are implemented.
+  const auth = false; // Keep disabled until server-authorized administrator roles are configured.
   const [tab, setTab] = useState<Tab>('overview');
 
   // Booking filters & search
@@ -20,7 +20,93 @@ export default function AdminPortal() {
   const [bookingSearch, setBookingSearch] = useState('');
   const [therapistSearch, setTherapistSearch] = useState('');
 
-  if (!auth) return <><Header /><main className="platform-main" style={{ maxWidth: '520px', padding: '60px 24px' }}><span className="eyebrow">PLATFORM GOVERNANCE</span><h1>Admin Console</h1><div style={{ border: '3px solid var(--ink)', padding: '24px', background: 'var(--surface-soft)' }}><p>Web administration is not enabled. The project owner manages practice approvals in the Supabase dashboard.</p><Link href="/">Return home</Link></div></main><Footer /></>;
+  if (!auth) {
+    return (
+      <>
+        <Header />
+        <main className="platform-main">
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            style={{ maxWidth: '640px', margin: '60px auto 0' }}
+          >
+            <span className="eyebrow">PLATFORM GOVERNANCE</span>
+            <h1 style={{ fontSize: 'clamp(32px, 4vw, 54px)', margin: '12px 0 8px', letterSpacing: '-1.5px', lineHeight: 1.05 }}>
+              Admin Console.<br />
+              <span style={{ display: 'inline-block', background: 'var(--ink)', color: 'var(--paper)', padding: '0 12px' }}>
+                Restricted.
+              </span>
+            </h1>
+            <p style={{ fontSize: '16px', maxWidth: '520px', borderTop: '3px solid var(--ink)', paddingTop: '16px', marginTop: '20px', color: 'var(--muted-text)' }}>
+              {t(
+                'This console is reserved for platform administrators to review practitioner applications, supervise schedules, and maintain clinical compliance.',
+                'ይህ ክፍል ለአስተዳዳሪዎች ብቻ የተከለለ ነው። የተመዘገቡ ባለሙያዎችን ለመከታተልና ቀጠሮዎችን ለማስተዳደር ይግቡ።'
+              )}
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '36px' }}>
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2, duration: 0.4 }}
+                style={{ border: '4px solid var(--ink)', padding: '28px 24px', background: 'var(--ink)', color: 'var(--paper)', display: 'flex', flexDirection: 'column' }}
+              >
+                <div style={{ fontSize: '32px', marginBottom: '14px' }}>🛡️</div>
+                <strong style={{ display: 'block', fontFamily: 'Archivo Black, sans-serif', fontSize: '20px', marginBottom: '10px', color: 'var(--paper)' }}>
+                  Sign In
+                </strong>
+                <p style={{ fontSize: '13px', color: '#bbb', margin: '0 0 24px', flex: 1 }}>
+                  Sign in with your authorized platform administrator credentials.
+                </p>
+                <Link
+                  href="/account?next=/admin"
+                  className="solid"
+                  style={{ background: 'var(--paper)', color: 'var(--ink)', borderColor: 'var(--paper)', fontSize: '11px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', padding: '10px 18px' }}
+                >
+                  Sign in →
+                </Link>
+              </motion.div>
+
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3, duration: 0.4 }}
+                style={{ border: '4px solid var(--ink)', padding: '28px 24px', display: 'flex', flexDirection: 'column' }}
+              >
+                <div style={{ fontSize: '32px', marginBottom: '14px' }}>🌿</div>
+                <strong style={{ display: 'block', fontFamily: 'Archivo Black, sans-serif', fontSize: '20px', marginBottom: '10px' }}>
+                  Return Home
+                </strong>
+                <p style={{ fontSize: '13px', color: 'var(--muted-text)', margin: '0 0 24px', flex: 1 }}>
+                  Browse our directory of verified licensed therapists in Addis Ababa.
+                </p>
+                <Link
+                  href="/therapists"
+                  className="solid"
+                  style={{ fontSize: '11px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', padding: '10px 18px' }}
+                >
+                  Browse therapists →
+                </Link>
+              </motion.div>
+            </div>
+
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.6 }}
+              style={{ marginTop: '40px', borderTop: '2px solid var(--rule-soft)', paddingTop: '20px', display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap' }}
+            >
+              <span style={{ fontSize: '11px', fontFamily: 'Space Mono, monospace', color: 'var(--muted-text)', textTransform: 'uppercase' }}>Need assistance?</span>
+              <Link href="/portal" style={{ fontSize: '12px', fontWeight: 700 }}>Therapist portal →</Link>
+              <Link href="/register" style={{ fontSize: '12px' }}>Join practice →</Link>
+            </motion.div>
+          </motion.div>
+        </main>
+        <Footer />
+      </>
+    );
+  }
 
   // ── Computed stats ───────────────────────────────────────────
   const today = dateKey();

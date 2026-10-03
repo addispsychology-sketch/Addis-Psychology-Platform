@@ -33,12 +33,12 @@ export default function AccountPanel() {
     let alive = true;
     const db = getSupabase();
     if (!db || !userId) return;
-    void Promise.all([db.auth.getUser(), db.from('telegram_accounts').select('telegram_id').eq('user_id', userId).maybeSingle(), db.from('account_preferences').select('telegram_notifications,email_notifications').eq('user_id', userId).maybeSingle()]).then(([auth, telegram, preferences]) => {
+    void Promise.all([db.auth.getUser(), db.from('telegram_accounts').select('telegram_id,verified_phone').eq('user_id', userId).maybeSingle(), db.from('account_preferences').select('telegram_notifications,email_notifications').eq('user_id', userId).maybeSingle()]).then(([auth, telegram, preferences]) => {
       if (!alive) return;
       const user = auth.data.user;
       setName(String(user?.user_metadata.full_name || ''));
       setEmail(user?.email?.endsWith('@telegram.addis.invalid') ? '' : user?.email || '');
-      setPhone(user?.phone ? '+' + user.phone.replace(/^\+/, '') : '');
+      setPhone(telegram.data?.verified_phone || '');
       setConnected(telegram.data?.telegram_id || null);
       setPrefs(preferences.data || { telegram_notifications: true, email_notifications: true });
       setProfileReady(!auth.error && !telegram.error && !preferences.error);
@@ -60,7 +60,17 @@ export default function AccountPanel() {
         if (error) throw error;
         setNotice('If an account exists for that email, you’ll receive a reset link. Open it, then set your new password here.'); return;
       }
-      const result = mode === 'signup' ? await db.auth.signUp({ email: email.trim(), password, options: { data: { full_name: name.trim() }, emailRedirectTo: window.location.origin + '/account' } }) : await db.auth.signInWithPassword(method === 'phone' ? { phone: normalizePhone(phone), password } : { email: email.trim(), password });
+      if (mode === 'signin' && method === 'phone') {
+        const response = await fetch('/api/auth/phone', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: normalizePhone(phone), password }) });
+        const session = await response.json();
+        if (!response.ok) throw new Error(session.error);
+        const { error } = await db.auth.setSession(session);
+        if (error) throw error;
+        setPassword(''); setNotice('You’re signed in. Welcome to Addis.');
+        if (destination) router.replace(destination);
+        return;
+      }
+      const result = mode === 'signup' ? await db.auth.signUp({ email: email.trim(), password, options: { data: { full_name: name.trim(), ...(phone.trim() ? { contact_phone: normalizePhone(phone) } : {}) }, emailRedirectTo: window.location.origin + '/account' } }) : await db.auth.signInWithPassword({ email: email.trim(), password });
       if (result.error) throw result.error;
       setPassword('');
       if (result.data.session) { setNotice('You’re signed in. Welcome to Addis.'); if (destination) router.replace(destination); }
@@ -110,6 +120,7 @@ export default function AccountPanel() {
         {mode === 'signin' && <div className="account-method"><button aria-pressed={method === 'email'} onClick={() => setMethod('email')}>Email</button><button aria-pressed={method === 'phone'} onClick={() => setMethod('phone')}>Phone number</button></div>}
         <form onSubmit={e => { e.preventDefault(); void submit(); }}>
           {mode === 'signup' && <label>Your name<input autoComplete="name" required minLength={2} maxLength={100} value={name} onChange={e => setName(e.target.value)} placeholder="What should we call you?" /></label>}
+          {mode === 'signup' && <label>Phone number <span className="account-optional">optional</span><input type="tel" autoComplete="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+251 … or 09…" /><small>For appointment reminders. Only shared with your therapist.</small></label>}
           {method === 'phone' && mode === 'signin' ? <label>Phone number<input type="tel" autoComplete="tel" required value={phone} onChange={e => setPhone(e.target.value)} placeholder="+251 …" /><small>Use the number you verified through our Telegram bot.</small></label> : <label>Email address<input type="email" required autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" /></label>}
           {mode !== 'reset' && <label>Password<div className="account-password"><input type={showPassword ? 'text' : 'password'} minLength={mode === 'signup' ? 12 : undefined} required autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} value={password} onChange={e => setPassword(e.target.value)} placeholder={mode === 'signup' ? 'At least 12 characters' : 'Your password'} /><button type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></label>}
           <button className="solid account-submit" disabled={busy}>{busy ? 'One moment…' : mode === 'signup' ? 'Create my account' : mode === 'reset' ? 'Send reset link' : 'Sign in'} <ArrowRight size={17} /></button>

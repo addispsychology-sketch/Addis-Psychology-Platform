@@ -31,6 +31,15 @@ test('migration enforces participant access, sender identity, and approval privi
     for (const file of readdirSync(migrations).filter(name => name.endsWith('.sql')).sort()) {
       await db.exec(readFileSync(new URL(file, migrations), 'utf8'));
     }
+    assert.equal((await db.query("select has_function_privilege('authenticated', 'public.claim_phone_login(text,integer)', 'execute') as allowed")).rows[0].allowed, false);
+    await db.exec('set role service_role');
+    for (let attempt = 1; attempt <= 10; attempt++) {
+      const limited = await db.query("select public.claim_phone_login(repeat('a',64),8) as allowed");
+      assert.equal(limited.rows[0].allowed, attempt <= 8);
+    }
+    await db.exec("update public.auth_attempt_windows set started_at = now() - interval '16 minutes'");
+    assert.equal((await db.query("select public.claim_phone_login(repeat('a',64),8) as allowed")).rows[0].allowed, true);
+    await db.exec('reset role');
     const privileges = await db.query("select has_function_privilege('anon', 'private.is_participant(uuid)', 'execute') as anonymous_access");
     assert.equal(privileges.rows[0].anonymous_access, false);
     const policyTests = readFileSync(new URL('../supabase/tests/rls.sql', import.meta.url), 'utf8');

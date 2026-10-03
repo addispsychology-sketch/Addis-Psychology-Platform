@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { usePlatform } from '@/components/Platform';
 import { Header, Footer, Flower } from '@/components/Shell';
+import { getSupabase } from '@/lib/supabase';
+import { normalizePhone } from '@/lib/booking-validation';
 
 export default function OnboardingFlow() {
   const { t } = usePlatform();
@@ -11,8 +13,13 @@ export default function OnboardingFlow() {
   const [name, setName] = useState('');
   const [concerns, setConcerns] = useState<string[]>([]);
   const [medium, setMedium] = useState('online');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [signupBusy, setSignupBusy] = useState(false);
+  const [signupNotice, setSignupNotice] = useState('');
 
-  const labels = [t('Welcome', 'እንኳን ደህና መጡ'), t('Your needs', 'ፍላጎትዎ'), t('Preferences', 'ምርጫዎች')];
+  const labels = [t('Welcome', 'እንኳን ደህና መጡ'), t('Your needs', 'ፍላጎትዎ'), t('Preferences', 'ምርጫዎች'), t('Account', 'መለያ')];
   const options: [string, string][] = [
     [t('Anxiety & stress', 'ጭንቀትና ውጥረት'), 'anxiety'],
     [t('Low mood & depression', 'ድብርትና ድካም'), 'depression'],
@@ -21,6 +28,59 @@ export default function OnboardingFlow() {
     [t('Self-confidence', 'በራስ መተማመን'), 'confidence'],
     [t('Something else', 'ሌላ ጉዳይ'), 'other'],
   ];
+
+  async function handleOnboardingSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (step < 3) {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('addis_onboarding');
+      }
+      setStep(step + 1);
+      return;
+    }
+
+    if (email.trim() && password) {
+      setSignupBusy(true);
+      setSignupNotice('');
+      try {
+        const db = getSupabase();
+        if (!db) throw new Error(t('Account service is currently unavailable. Please try again.', 'የመለያ አገልግሎት ለጊዜው አልተገኘም።'));
+
+        const signUpData: Record<string, string> = {
+          full_name: name.trim() || 'Client',
+          onboarding_medium: medium,
+        };
+        if (phone.trim()) {
+          signUpData.contact_phone = normalizePhone(phone);
+        }
+
+        const result = await db.auth.signUp({
+          email: email.trim(),
+          password,
+          options: {
+            data: signUpData,
+            emailRedirectTo: window.location.origin + '/account',
+          },
+        });
+        if (result.error) throw result.error;
+
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('addis_onboarding');
+        }
+        if (result.data.session) window.location.href = '/therapists';
+        else setSignupNotice(t('Check your email to confirm your account, then sign in. You can browse therapists while you wait.', 'መለያዎን ለማረጋገጥ ኢሜይልዎን ይመልከቱ።'));
+      } catch (err) {
+        setSignupNotice(err instanceof Error ? err.message : t('Sign up could not be completed. Please try again.', 'ምዝገባ አልተሳካም። እባክዎ እንደገና ይሞክሩ።'));
+      } finally {
+        setSignupBusy(false);
+      }
+    } else {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('addis_onboarding');
+      }
+      window.location.href = '/therapists';
+    }
+  }
 
   return (
     <>
@@ -57,7 +117,7 @@ export default function OnboardingFlow() {
         <section className="onboarding-box">
           <div className="section-line">
             <span>{t("LET'S START SMALL", 'በቀላሉ እንጀምር')}</span>
-            <span>0{step + 1} / 03</span>
+            <span>0{step + 1} / 04</span>
           </div>
 
           <ol className="onboarding-progress">
@@ -66,7 +126,7 @@ export default function OnboardingFlow() {
             ))}
           </ol>
 
-          <form onSubmit={e => { e.preventDefault(); if (step < 2) setStep(step + 1); else window.location.href = '/therapists'; }}>
+          <form onSubmit={handleOnboardingSubmit}>
             {step === 0 ? (
               <>
                 <h2>{t('Good to have you here.', 'እዚህ በመምጣትዎ ደስ ብሎናል።')}</h2>
@@ -99,7 +159,7 @@ export default function OnboardingFlow() {
                   ))}
                 </div>
               </>
-            ) : (
+            ) : step === 2 ? (
               <>
                 <h2>{t('Choose how you connect.', 'እንዴት መገናኘት እንደሚፈልጉ ይምረጡ።')}</h2>
                 <p>{t('Select your preferred medium. You can adjust this whenever booking.', 'የሚመርጡትን መንገድ ይምረጡ። ቀጠሮ ሲይዙ መቀየር ይችላሉ።')}</p>
@@ -121,14 +181,92 @@ export default function OnboardingFlow() {
                   )}
                 </p>
               </>
+            ) : (
+              <>
+                <h2>{t('Save your space & needs.', 'ምርጫዎን ያስቀምጡ።')}</h2>
+                <p>
+                  {t(
+                    'Create a private account to save your answers, appointments, and care history. Or skip to explore anonymously.',
+                    'ምርጫዎችዎና ቀጠሮዎችዎ እንዲቀመጡ ነጻ መለያ ይፍጠሩ። ወይም ሳይመዘገቡ በነጻነት ይመልከቱ።'
+                  )}
+                </p>
+                <label>
+                  {t('Email address', 'ኢሜይል አድራሻ')}
+                  <input
+                    type="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    maxLength={200}
+                  />
+                </label>
+                <label>
+                  {t('Phone number (optional)', 'ስልክ ቁጥር (አማራጭ)')}
+                  <input
+                    type="tel"
+                    autoComplete="tel"
+                    value={phone}
+                    onChange={e => setPhone(e.target.value)}
+                    placeholder="+251 … or 09…"
+                    maxLength={30}
+                  />
+                  <small style={{ color: 'var(--muted-text)', fontSize: '11px', textTransform: 'none', display: 'block', marginTop: '4px' }}>
+                    {t('Used for appointment confirmations. Only shared with your therapist.', 'ለቀጠሮ ማረጋገጫ ብቻ የሚያገለግል።')}
+                  </small>
+                </label>
+                <label>
+                  {t('Password', 'የሚስጥር ቁጥር')}
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder={t('At least 12 characters', 'ቢያንስ 12 ቁምፊዎች')}
+                    minLength={12}
+                    maxLength={128}
+                  />
+                </label>
+                {signupNotice && (
+                  <p style={{ fontSize: '13px', color: 'var(--danger, #c00)', border: '2px solid currentColor', padding: '10px 14px', marginTop: '12px' }}>
+                    {signupNotice}
+                  </p>
+                )}
+                <div style={{ marginTop: '14px', textAlign: 'center' }}>
+                  <button
+                    type="button"
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      textDecoration: 'underline',
+                      color: 'var(--muted-text)',
+                      cursor: 'pointer',
+                      fontSize: '11px',
+                      fontFamily: 'Space Mono, monospace',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                    }}
+                    onClick={() => {
+                      localStorage.removeItem('addis_onboarding');
+                      window.location.href = '/therapists';
+                    }}
+                  >
+                    {t('Skip — explore anonymously without account →', 'ዝለል — ሳይመዘገቡ በነጻነት ይመልከቱ →')}
+                  </button>
+                </div>
+              </>
             )}
 
             <div className="form-actions">
               <button type="button" disabled={step === 0} onClick={() => setStep(step - 1)}>
                 {t('Back', 'ተመለስ')}
               </button>
-              <button className="solid" type="submit">
-                {step === 2 ? t('Find my therapist →', 'ባለሙያ ፈልግ →') : t('Continue', 'ቀጥል')}
+              <button className="solid" type="submit" disabled={signupBusy}>
+                {signupBusy
+                  ? t('Saving…', 'በማስቀመጥ ላይ…')
+                  : step === 3
+                  ? (email.trim() && password ? t('Save & Find Therapist →', 'መለያ ፍጠርና ባለሙያ ፈልግ →') : t('Find my therapist →', 'ባለሙያ ፈልግ →'))
+                  : t('Continue', 'ቀጥል')}
               </button>
             </div>
           </form>

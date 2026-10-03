@@ -3916,6 +3916,10 @@ textarea { resize: vertical; }
    MOBILE VIEWPORT ADAPTATIONS (< 768px)
    ══════════════════════════════════════════════════════════════════ */
 @media(max-width: 768px) {
+  .account-intro {
+    display: none;
+  }
+
   /* Therapist Profile Modal Mobile Capture (No Cutoff, No Side Scrolling) */
   .platform-modal {
     width: calc(100vw - 20px) !important;

@@ -55,7 +55,7 @@ export async function configureAuthEmail(env, request = fetch) {
   if (!config.SUPABASE_ACCESS_TOKEN || !config.SUPABASE_PROJECT_ID) throw new Error('Supabase management access is needed to connect sign-up emails. Appointment SMTP is separate.');
   const response = await request(`https://api.supabase.com/v1/projects/${config.SUPABASE_PROJECT_ID}/config/auth`, {
     method:'PATCH', headers:{Authorization:`Bearer ${config.SUPABASE_ACCESS_TOKEN}`,'Content-Type':'application/json'},
-    body:JSON.stringify({ smtp_host:config.SMTP_HOST,smtp_port:config.SMTP_PORT,smtp_user:config.SMTP_USER,smtp_pass:config.SMTP_PASSWORD,smtp_admin_email:config.SMTP_USER,smtp_sender_name:'Addis Psychology',external_phone_enabled:true,mailer_autoconfirm:false }),
+    body:JSON.stringify({ smtp_host:config.SMTP_HOST,smtp_port:config.SMTP_PORT,smtp_user:config.SMTP_USER,smtp_pass:config.SMTP_PASSWORD,smtp_admin_email:config.SMTP_USER,smtp_sender_name:'Addis Psychology',mailer_autoconfirm:false }),
     signal:AbortSignal.timeout(20000),
   });
   if (!response.ok) throw new Error('Supabase email setup failed. Check management permissions; no secret values were printed.');

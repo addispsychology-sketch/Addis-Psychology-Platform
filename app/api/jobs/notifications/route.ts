@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer';
 import { equalSecret } from '@/lib/telegram-validation';
 import { serviceDb, siteUrl } from '@/lib/server-services';
 import { miniLink, telegram } from '@/lib/telegram-server';
+import { renderAppointmentEmail } from '@/lib/email-templates';
 
 export const maxDuration = 60;
 export async function POST(request: Request) {
@@ -38,7 +39,20 @@ export async function POST(request: Request) {
           if (userError) throw new Error('Contact unavailable');
           if (user?.email && user.email_confirmed_at && !user.email.endsWith('@telegram.addis.invalid')) {
             if (!smtp) throw new Error('Email awaiting setup');
-            await smtp.sendMail({ from: process.env.SMTP_FROM, to: user.email, subject: job.kind === 'reminder' ? 'Your upcoming Addis appointment' : 'Your Addis appointment update', text: `Addis Psychology\n\n${summary}\n\nOpen your appointment: ${siteUrl(job.path)}\n\nManage notifications: ${siteUrl('/account')}\n\nFor your privacy, message contents are never included in email notifications.` });
+            const emailContent = renderAppointmentEmail({
+              recipientName: user.user_metadata?.full_name,
+              summary,
+              appointmentPath: siteUrl(job.path),
+              accountPath: siteUrl('/account'),
+              isReminder: job.kind === 'reminder',
+            });
+            await smtp.sendMail({
+              from: process.env.SMTP_FROM,
+              to: user.email,
+              subject: emailContent.subject,
+              text: emailContent.text,
+              html: emailContent.html,
+            });
           } else skip = true;
         }
         const { error: saveError } = await db.from('notification_jobs').update({ delivered_at: new Date().toISOString(), last_error: skip ? 'Skipped: disabled, no verified destination, or superseded' : null, lease_until: null }).eq('id', job.id).eq('lease_token', job.lease_token);

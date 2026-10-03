@@ -156,7 +156,88 @@ function TherapistPortalInner() {
     ['profile', '👤', t('Profile & Bio', 'መገለጫና ፎቶ')],
   ];
 
-  if (!userId || !person) return <><Header /><main className="platform-main"><h1>Your practice</h1><p>Sign in and register your practice to access the portal.</p><NextLink href="/account">Account</NextLink>{" · "}<NextLink href="/register">Register practice</NextLink></main></>;
+  if (!userId || !person) {
+    return (
+      <>
+        <Header />
+        <main className="platform-main">
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            style={{ maxWidth: '660px', margin: '48px auto 0' }}
+          >
+            <span className="eyebrow">THERAPIST PORTAL</span>
+            <h1 style={{ fontSize: 'clamp(32px, 4vw, 54px)', margin: '12px 0 8px', letterSpacing: '-1.5px', lineHeight: 1.05 }}>
+              {!userId ? (
+                <>Your practice.<br /><span style={{ display: 'inline-block', background: 'var(--ink)', color: 'var(--paper)', padding: '0 12px' }}>Awaits.</span></>
+              ) : (
+                <>Almost<br />there.</>
+              )}
+            </h1>
+            <p style={{ fontSize: '16px', maxWidth: '520px', borderTop: '3px solid var(--ink)', paddingTop: '16px', marginTop: '20px', color: 'var(--muted-text)' }}>
+              {!userId
+                ? 'The therapist portal is your private clinical workspace — for client conversations, appointment management, and your public practice profile.'
+                : 'Your Addis account is ready. Complete your practitioner registration to unlock your full clinical workspace.'}
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: !userId ? '1fr 1fr' : '1fr', gap: '16px', marginTop: '36px' }}>
+              {!userId ? (
+                <>
+                  <motion.div
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2, duration: 0.4 }}
+                    style={{ border: '4px solid var(--ink)', padding: '28px 24px', background: 'var(--ink)', color: 'var(--paper)', display: 'flex', flexDirection: 'column' }}
+                  >
+                    <div style={{ fontSize: '32px', marginBottom: '14px' }}>👤</div>
+                    <strong style={{ display: 'block', fontFamily: 'Archivo Black, sans-serif', fontSize: '20px', marginBottom: '10px', color: 'var(--paper)' }}>Sign In</strong>
+                    <p style={{ fontSize: '13px', color: '#bbb', margin: '0 0 24px', flex: 1 }}>Already a registered practitioner? Access your clinical workspace.</p>
+                    <NextLink href="/account?next=/portal" className="solid" style={{ background: 'var(--paper)', color: 'var(--ink)', borderColor: 'var(--paper)', fontSize: '11px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', padding: '10px 18px' }}>Sign in →</NextLink>
+                  </motion.div>
+                  <motion.div
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.3, duration: 0.4 }}
+                    style={{ border: '4px solid var(--ink)', padding: '28px 24px', display: 'flex', flexDirection: 'column' }}
+                  >
+                    <div style={{ fontSize: '32px', marginBottom: '14px' }}>🩺</div>
+                    <strong style={{ display: 'block', fontFamily: 'Archivo Black, sans-serif', fontSize: '20px', marginBottom: '10px' }}>Join as Practitioner</strong>
+                    <p style={{ fontSize: '13px', color: 'var(--muted-text)', margin: '0 0 24px', flex: 1 }}>Apply to list your practice and start receiving bookings through Addis Psychology.</p>
+                    <NextLink href="/register" className="solid" style={{ fontSize: '11px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', padding: '10px 18px' }}>Apply now →</NextLink>
+                  </motion.div>
+                </>
+              ) : (
+                <motion.div
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2, duration: 0.4 }}
+                  style={{ border: '4px solid var(--ink)', padding: '32px 28px', background: 'var(--ink)', color: 'var(--paper)', display: 'flex', flexDirection: 'column' }}
+                >
+                  <div style={{ fontSize: '32px', marginBottom: '14px' }}>🩺</div>
+                  <strong style={{ display: 'block', fontFamily: 'Archivo Black, sans-serif', fontSize: '24px', marginBottom: '10px', color: 'var(--paper)' }}>Register your practice</strong>
+                  <p style={{ fontSize: '14px', color: '#bbb', margin: '0 0 28px', maxWidth: '480px' }}>Your Addis account is ready. Complete your practitioner profile to get listed and start receiving bookings from clients.</p>
+                  <NextLink href="/register" className="solid" style={{ background: 'var(--paper)', color: 'var(--ink)', borderColor: 'var(--paper)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', padding: '12px 24px', width: 'fit-content' }}>Complete registration →</NextLink>
+                </motion.div>
+              )}
+            </div>
+
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.6 }}
+              style={{ marginTop: '40px', borderTop: '2px solid var(--rule-soft)', paddingTop: '20px', display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap' }}
+            >
+              <span style={{ fontSize: '11px', fontFamily: 'Space Mono, monospace', color: 'var(--muted-text)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Questions?</span>
+              <NextLink href="/register" style={{ fontSize: '12px', fontWeight: 700 }}>Learn about joining →</NextLink>
+              <NextLink href="/therapists" style={{ fontSize: '12px' }}>Browse directory →</NextLink>
+            </motion.div>
+          </motion.div>
+        </main>
+        <Footer />
+      </>
+    );
+  }
 
   return (
     <>

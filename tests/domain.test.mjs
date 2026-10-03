@@ -76,3 +76,11 @@ test('Addis Ababa day boundary and month transitions', () => {
  assert.equal(isFutureSlot('2020-01-01','09:00'), false);
  assert.equal(isFutureSlot('invalid','09:00'), false);
 });
+
+const emailTemplates = await import('data:text/javascript,' + encodeURIComponent(stripTypeScriptTypes(readFileSync(new URL('../lib/email-templates.ts', import.meta.url), 'utf8'))));
+test('notification email escapes user names, content, and rejects unsafe links', () => {
+ const result = emailTemplates.renderAppointmentEmail({ recipientName: '<img src=x>', summary: '<script>bad</script>', appointmentPath: 'https://example.com/appointments', accountPath: 'https://example.com/account' });
+ assert.ok(!result.html.includes('<img src=x>'));
+ assert.ok(result.html.includes('&lt;script&gt;bad&lt;/script&gt;'));
+ assert.throws(() => emailTemplates.renderAnnouncementEmail({ title: 'Hello', message: 'Hi', actionText: 'Open', actionUrl: 'javascript:alert(1)' }));
+});
