@@ -1,12 +1,13 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight, ShieldCheck } from 'lucide-react';
 import { usePlatform } from './Platform';
 import { authenticatedFetch, getSupabase } from '@/lib/supabase';
 import { motion } from 'framer-motion';
+import { validateBooking } from '@/lib/booking-validation';
 
-export default function BookingDetails({ therapist, day, time, medium, available }: { therapist: number; day: string; time: string; medium: 'online' | 'inperson'; available: boolean }) {
+export default function BookingDetails({ therapist, day, time, medium, available, onBooked }: { therapist: number; day: string; time: string; medium: 'online' | 'inperson'; available: boolean; onBooked?: () => void }) {
   const { userId, refreshAppointments } = usePlatform();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -15,6 +16,7 @@ export default function BookingDetails({ therapist, day, time, medium, available
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [booked, setBooked] = useState(false);
+  const submitting = useRef(false);
   useEffect(() => {
     let alive = true;
     void getSupabase()?.auth.getUser().then(({ data }) => {
@@ -68,18 +70,22 @@ export default function BookingDetails({ therapist, day, time, medium, available
 
   return <section className="booking-details"><span className="account-eyebrow">03 / YOUR DETAILS</span><h2>Let’s make it personal.</h2><p>Request your time. Addis Psychology confirms your booking, then you pay your therapist directly. Messaging package payments are separate.</p>
     <form onSubmit={async e => {
-      e.preventDefault(); if (busy) return;
+      e.preventDefault(); if (submitting.current) return;
+      if (!available) { setNotice('Please choose an available date and time.'); return; }
+      submitting.current = true;
       setBusy(true); setNotice('');
       try {
-        await authenticatedFetch('/api/bookings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ therapist, date: day, time, medium, name, phone, language, consent }) });
-        setBooked(true); await refreshAppointments();
+        const input = validateBooking({ therapist, date: day, time, medium, name, phone, language, consent });
+        await authenticatedFetch('/api/bookings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
+        setBooked(true); onBooked?.(); await refreshAppointments();
       } catch (error) { setNotice(error instanceof Error ? error.message : 'Please try again.'); }
-      finally { setBusy(false); }
+      finally { submitting.current = false; setBusy(false); }
     }}>
       <div className="booking-contact-grid"><label>Your name<input required autoComplete="name" minLength={2} maxLength={100} value={name} onChange={e => setName(e.target.value)} placeholder="Your full name" /></label><label>Phone number<input required type="tel" autoComplete="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+251 … or 09…" /><small>Only shared with your therapist.</small></label></div>
       <label>Preferred language <span className="account-optional">optional</span><select value={language} onChange={e => setLanguage(e.target.value)}><option value="">No preference</option><option>Amharic</option><option>English</option><option>Afaan Oromo</option><option>Tigrinya</option><option>Other — please ask me</option></select></label>
       <label className="booking-consent"><input type="checkbox" required checked={consent} onChange={e => setConsent(e.target.checked)} /><span>I agree to share these contact details with my therapist to arrange this session.</span></label>
-      <div className="booking-confirm-row"><p><ShieldCheck size={16} /> No medical history needed here. Discuss personal concerns privately with your therapist.</p><button className="solid" disabled={!day || !time || !available || !consent || busy}>{busy ? 'Sending request…' : 'Request appointment'} <ArrowRight size={17} /></button></div>
+      {!available && <p className="account-notice" role="status">Choose an available date and time above to continue.</p>}
+      <div className="booking-confirm-row"><p><ShieldCheck size={16} /> No medical history needed here. Discuss personal concerns privately with your therapist.</p><button type="submit" className="solid" disabled={!day || !time || !available || !consent || busy}>{busy ? 'Sending request…' : 'Confirm booking request'} <ArrowRight size={17} /></button></div>
       {notice && <p className="account-notice" role="alert">{notice}</p>}
     </form>
   </section>;

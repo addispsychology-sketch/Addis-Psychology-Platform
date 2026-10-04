@@ -6,7 +6,7 @@ import { Home, MessageCircle, CalendarDays, Package, Wallet } from 'lucide-react
 import { usePlatform } from './Platform';
 import { getSupabase } from '@/lib/supabase';
 export default function ClientNav() {
-  const { userId, ownTherapistId, t } = usePlatform();
+  const { userId, ownTherapistId, t, messages } = usePlatform();
   const path = usePathname();
   const [unread, setUnread] = useState(0);
   useEffect(() => {
@@ -20,9 +20,10 @@ export default function ClientNav() {
       finally { loading = false; }
     };
     void refresh();
+    window.addEventListener('messages-read',refresh);
     const timer = setInterval(() => { if (document.visibilityState === 'visible') void refresh(); }, 120000);
-    return () => { alive = false; clearInterval(timer); };
-  }, [userId, ownTherapistId, path]);
+    return () => { alive = false; clearInterval(timer); window.removeEventListener('messages-read',refresh); };
+  }, [userId, ownTherapistId, path, messages]);
   if (ownTherapistId || path.startsWith('/admin') || path.startsWith('/portal')) return null;
   const items = [
     { href: '/therapists', label: t('Home', 'ዋና'), icon: Home },

@@ -12,6 +12,45 @@ const { verifyMiniApp, equalSecret } = await import('data:text/javascript,' + en
 const { normalizePhone, validateBooking } = await import('data:text/javascript,' + encodeURIComponent(stripTypeScriptTypes(readFileSync(new URL('../lib/booking-validation.ts', import.meta.url), 'utf8'))));
 const { refundableCents } = await import('data:text/javascript,' + encodeURIComponent(stripTypeScriptTypes(readFileSync(new URL('../lib/payment-policy.ts', import.meta.url), 'utf8'))));
 const { proofType } = await import('data:text/javascript,' + encodeURIComponent(stripTypeScriptTypes(readFileSync(new URL('../lib/payment-proof.ts', import.meta.url), 'utf8'))));
+const {postText,postActions}=await import('data:text/javascript,'+encodeURIComponent(stripTypeScriptTypes(readFileSync(new URL('../lib/channel-post.ts',import.meta.url),'utf8'))));
+const {postCaptionLength}=await import('data:text/javascript,'+encodeURIComponent(stripTypeScriptTypes(readFileSync(new URL('../lib/channel-post.ts',import.meta.url),'utf8'))));
+const {miniAppLink,miniAppPath}=await import('data:text/javascript,'+encodeURIComponent(stripTypeScriptTypes(readFileSync(new URL('../lib/telegram-links.ts',import.meta.url),'utf8'))));
+const {channelMediaSpec,channelMediaType}=await import('data:text/javascript,'+encodeURIComponent(stripTypeScriptTypes(readFileSync(new URL('../lib/channel-media.ts',import.meta.url),'utf8'))));
+test('channel buttons launch the Mini App directly and reject unsafe destinations',()=>{
+ for(const path of ['/', '/therapists', '/chat?therapist=1', '/schedule/1','/admin']){
+  const link=new URL(miniAppLink('addispsychology_bot',path));
+  assert.equal(link.searchParams.has('start'),false);
+  assert.equal(miniAppPath(link.searchParams.get('startapp')),path);
+ }
+ const long='/chat?conversation=00000000-0000-4000-8000-000000000001';
+ assert.equal(miniAppPath(new URL(miniAppLink('addispsychology_bot',long)).searchParams.get('startapp')),long);
+ assert.equal(new URL(miniAppLink('addispsychology_bot','/therapists','addis')).pathname,'/addispsychology_bot/addis');
+ const unicode='/chat?label=ድጋፍ';assert.equal(miniAppPath(new URL(miniAppLink('addispsychology_bot',unicode)).searchParams.get('startapp')),unicode);
+ for(const path of ['//evil.example','https://evil.example','/chat\\evil','/chat\ninvalid','/unrecognized']){
+  assert.throws(()=>miniAppLink('addispsychology_bot',path));
+  assert.equal(miniAppPath(Buffer.from(path).toString('base64url')),null);
+ }
+ assert.equal(miniAppPath('connect'),null);
+ assert.equal(miniAppPath('Lw=='),null);
+ assert.throws(()=>miniAppLink(undefined,'/'));
+});
+test('channel media enforces Telegram URL-upload limits, file signatures and full caption length',()=>{
+ assert.equal(channelMediaSpec('image/jpeg',5*1024*1024).type,'photo');
+ assert.equal(channelMediaSpec('video/mp4',20*1024*1024).type,'video');
+ for(const [type,size] of [['image/jpeg',5*1024*1024+1],['video/mp4',20*1024*1024+1],['image/svg+xml',42],['text/html',42],['image/png',0],['image/png',1.5]])assert.throws(()=>channelMediaSpec(type,size));
+ assert.equal(channelMediaType(new Uint8Array([255,216,255])),'image/jpeg');
+ assert.equal(channelMediaType(new Uint8Array([137,80,78,71,13,10,26,10])),'image/png');
+ assert.equal(channelMediaType(new TextEncoder().encode('0000ftypisom0000')),'video/mp4');
+ for(const header of ['<svg>','<html>','0000ftypqt  0000'])assert.throws(()=>channelMediaType(new TextEncoder().encode(header)));
+ const fixed=postCaptionLength('Heading','');
+ assert.equal(postCaptionLength('Heading','&'.repeat(1024-fixed)),1024);
+ assert.ok(postText('Heading','&'.repeat(1024-fixed)).length>1024);
+});
+test('channel posts preserve safe formatting and link to voice, chat and booking',()=>{
+ assert.ok(postText('<script>','Private & respectful').includes('&lt;script&gt;'));
+ assert.ok(postText('Professional care','Private & respectful').includes('Private &amp; respectful'));
+ assert.deepEqual(postActions(1).flat().map(b=>b.path),['/chat?therapist=1','/chat?therapist=1','/schedule/1']);
+});
 
 test('refund estimate preserves principal, prorates mixed credits and excludes service fees', () => {
  const lot = {principal_cents:48000,texts:250,voice_seconds:900,initial_texts:250,initial_voice_seconds:900};
@@ -103,13 +142,15 @@ test('notification email escapes user names, content, and rejects unsafe links',
 });
 
 const { therapistAvailability } = await import('data:text/javascript,' + encodeURIComponent(stripTypeScriptTypes(readFileSync(new URL('../lib/presence.ts', import.meta.url), 'utf8'))));
-test('online presence requires available status and Addis working hours, including overnight shifts', () => {
- const settings = { presence: 'available', chatDays: [1], chatStart: '09:00', chatEnd: '17:00' };
- assert.equal(therapistAvailability(settings, Date.parse('2026-10-05T06:00:00Z')).isOnline, true);
- assert.equal(therapistAvailability({...settings,presence:'busy'}, Date.parse('2026-10-05T06:00:00Z')).isOnline, false);
- assert.equal(therapistAvailability({...settings,presence:'offline'}, Date.parse('2026-10-05T06:00:00Z')).isOnline, false);
- assert.equal(therapistAvailability(settings, Date.parse('2026-10-05T14:00:00Z')).isOnline, false);
- assert.equal(therapistAvailability({...settings,chatStart:'22:00',chatEnd:'02:00'}, Date.parse('2026-10-05T22:00:00Z')).isOnline, true);
+test('live presence expires, respects manual status and works outside scheduled hours', () => {
+ const now=Date.parse('2026-10-04T09:00:00Z');
+ const settings={presence:'available',chatDays:[1],chatStart:'09:00',chatEnd:'17:00',lastSeenAt:new Date(now-45000).toISOString()};
+ assert.equal(therapistAvailability(settings,now).isOnline,true);
+ assert.equal(therapistAvailability(settings,now).inWindow,false);
+ assert.equal(therapistAvailability({...settings,lastSeenAt:null},now).isOnline,false);
+ assert.equal(therapistAvailability({...settings,lastSeenAt:new Date(now-121000).toISOString()},now).isOnline,false);
+ for(const presence of ['busy','offline']) assert.equal(therapistAvailability({...settings,presence},now).isOnline,false);
+ assert.equal(therapistAvailability({...settings,chatDays:[1],chatStart:'22:00',chatEnd:'02:00'},Date.parse('2026-10-05T22:00:00Z')).inWindow,true);
 });
 test('auth email preserves provider tokens and routes through explicit confirmation without unsafe interpolation', () => {
  const confirmation = emailTemplates.renderEmailConfirmationTemplate('https://example.com/auth/confirm?token_hash={{ .TokenHash }}&type=email', '<script>alert(1)</script>');

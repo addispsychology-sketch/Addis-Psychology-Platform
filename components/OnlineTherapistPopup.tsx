@@ -10,23 +10,21 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 export default function OnlineTherapistPopup() {
   const pathname = usePathname();
-  const { t, people, settings } = usePlatform();
+  const { t, people, settings, ownTherapistId } = usePlatform();
 
   const [visible, setVisible] = useState(false);
   const [minimized, setMinimized] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
   const [clock, setClock] = useState(() => Date.now());
   useEffect(() => { const timer = setInterval(() => setClock(Date.now()), 15000); return () => clearInterval(timer); }, []);
 
   // Find an available therapist
   const availableTherapist = people.find(p => {
     const s = settings(p.id);
-    return s.presence === 'available' || therapistAvailability(s, clock).isOnline;
+    return therapistAvailability(s, clock).isOnline;
   });
 
   useEffect(() => {
     if (pathname === '/chat' || pathname === '/portal' || pathname.startsWith('/admin')) {
-      setVisible(false);
       return;
     }
 
@@ -37,7 +35,7 @@ export default function OnlineTherapistPopup() {
     return () => clearTimeout(timer);
   }, [pathname]);
 
-  if (dismissed || ['/chat','/portal','/admin','/register'].includes(pathname) || !availableTherapist) {
+  if (ownTherapistId || ['/chat','/portal','/admin','/register'].includes(pathname) || !availableTherapist) {
     return null;
   }
 

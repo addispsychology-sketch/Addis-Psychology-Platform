@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --test-isolation=none tests/domain.test.mjs tests/rls.test.mjs tests/deployment.test.mjs",
+    "test": "node --test --test-isolation=none tests/domain.test.mjs tests/rls.test.mjs tests/deployment.test.mjs tests/telegram.test.mjs tests/booking.test.mjs",
     "setup:messaging": "node --env-file-if-exists=.env.local --env-file-if-exists=.env.integration.local scripts/setup-messaging.mjs"
   },
   "dependencies": {

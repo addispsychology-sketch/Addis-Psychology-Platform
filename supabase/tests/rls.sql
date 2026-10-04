@@ -25,6 +25,23 @@ set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000001', true);
 insert into public.messages(conversation_id, sender_id, text) values
 ('00000000-0000-4000-8000-000000000004', '00000000-0000-4000-8000-000000000001', 'RLS test');
+update public.messages set text='RLS edited' where text='RLS test';
+do $$ begin
+ if not exists(select 1 from public.messages where text='RLS edited' and edited_at is not null) then raise exception 'Own message edit failed'; end if;
+ if (select texts from public.credit_lots where user_id='00000000-0000-4000-8000-000000000001')<>99 then raise exception 'Edit charged another credit'; end if;
+ begin
+  update public.messages set sender_id='00000000-0000-4000-8000-000000000002' where text='RLS edited';
+  raise exception 'FAIL: edit can change sender';
+ exception when insufficient_privilege then null; end;
+ begin
+  update public.messages set edited_at=now()-interval '1 day' where text='RLS edited';
+  raise exception 'FAIL: edit can forge timestamp';
+ exception when insufficient_privilege then null; end;
+ begin
+  update public.messages set text='  ' where text='RLS edited';
+  raise exception 'FAIL: empty edit accepted';
+ exception when insufficient_privilege or check_violation then null; end;
+end $$;
 do $$ begin
   if (select count(*) from public.messages where conversation_id = '00000000-0000-4000-8000-000000000004') <> 1 then raise exception 'Client cannot read own conversation'; end if;
   begin
@@ -38,6 +55,10 @@ do $$ begin
 end $$;
 insert into public.messages(conversation_id,sender_id,audio_url,duration_seconds) values ('00000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000001','/api/voice?key=00000000-0000-4000-8000-000000000004%2F00000000-0000-4000-8000-000000000001%2F00000000-0000-4000-8000-000000000005',30);
 select set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000002', true);
+update public.messages set text='Forged recipient edit' where text='RLS edited';
+do $$ begin
+ if not exists(select 1 from public.messages where text='RLS edited') then raise exception 'FAIL: recipient edited sender message'; end if;
+end $$;
 do $$ begin
   update public.practitioners set settings='{"online":1800,"inperson":2200,"presence":"available"}'::jsonb where id=-1;
   if not exists(select 1 from public.practitioners where id=-1 and settings->>'online'='1800') then raise exception 'Therapist pricing update failed'; end if;

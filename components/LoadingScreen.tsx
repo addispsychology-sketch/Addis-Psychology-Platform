@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useDocumentScrollLock } from '@/lib/useDocumentScrollLock';
 
 const quotes = [
   {
@@ -42,20 +44,24 @@ const quotes = [
 ];
 
 export default function LoadingScreen() {
+  const pathname=usePathname();
   const [loading, setLoading] = useState(false);
   const [quoteIndex, setQuoteIndex] = useState(0);
   const [progress, setProgress] = useState(0);
 
   // Show loading screen on home page visit
   useEffect(() => {
-    if (window.location.pathname !== '/') return;
+    if (pathname !== '/') return;
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     
-    setLoading(true);
-    setQuoteIndex(Math.floor(Math.random() * quotes.length));
+    const frame=requestAnimationFrame(()=>{setLoading(true);setProgress(0);setQuoteIndex(Math.floor(Math.random() * quotes.length));});
     
     const startTime = Date.now();
-    const duration = 1600;
+    let duration = 7000;
+    try {
+      if (sessionStorage.getItem('addis-home-intro-seen')) duration = 2500;
+      sessionStorage.setItem('addis-home-intro-seen', '1');
+    } catch { /* Keep the readable introduction when session storage is unavailable. */ }
 
     const interval = setInterval(() => {
       const elapsed = Date.now() - startTime;
@@ -68,29 +74,19 @@ export default function LoadingScreen() {
       }
     }, 40);
 
-    return () => clearInterval(interval);
-  }, []);
+    return () => {clearInterval(interval);cancelAnimationFrame(frame);};
+  }, [pathname]);
 
-  // Lock document scrolling while full-screen loading is active
-  useEffect(() => {
-    if (loading) {
-      document.body.style.overflow = 'hidden';
-      document.documentElement.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-      document.documentElement.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-      document.documentElement.style.overflow = '';
-    };
-  }, [loading]);
+  // A Telegram start link can navigate away before the loading timer finishes.
+  // Release the lock as soon as the overlay leaves the home page.
+  const visible = pathname === '/' && loading;
+  useDocumentScrollLock(visible);
 
   const activeQuote = quotes[quoteIndex];
 
   return (
     <AnimatePresence>
-      {loading && (
+      {visible && (
         <motion.div
           key="route-loader"
           initial={{ opacity: 0 }}

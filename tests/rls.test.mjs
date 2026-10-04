@@ -30,7 +30,9 @@ test('migration enforces participant access, sender identity, and approval privi
     `);
     const migrations = new URL('../supabase/migrations/', import.meta.url);
     for (const file of readdirSync(migrations).filter(name => name.endsWith('.sql')).sort()) {
-      await db.exec(readFileSync(new URL(file, migrations), 'utf8'));
+      // pg_cron and pg_net are hosted scheduler APIs; exercise application SQL unchanged.
+      const sql=readFileSync(new URL(file,migrations),'utf8').replace(/^create extension if not exists pg_(cron|net).*;$/gm,'').replace(/^select cron.schedule.*;$/gm,'');
+      await db.exec(sql);
     }
     assert.equal((await db.query("select has_function_privilege('authenticated', 'public.claim_phone_login(text,integer)', 'execute') as allowed")).rows[0].allowed, false);
     await db.exec('set role service_role');
@@ -47,16 +49,22 @@ test('migration enforces participant access, sender identity, and approval privi
     await db.exec(policyTests.replace('rollback;', () => `
       reset role;
       set local role authenticated;
+      select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000003',true);
+      insert into public.conversations(id,client_id,therapist_id) values('00000000-0000-4000-8000-000000000007','00000000-0000-4000-8000-000000000003',-1) returning id;
       select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',true);
-      insert into storage.objects(bucket_id,name) values ('voice-notes','00000000-0000-4000-8000-000000000004/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000005');
+
+      reset role;
+      set local role authenticated;
+      select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',true);
+      insert into storage.objects(bucket_id,name) values ('voice-notes','00000000-0000-4000-8000-000000000004/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000006');
       do $$ begin
         if exists(select 1 from storage.objects) then raise exception 'FAIL: unpublished upload readable'; end if;
         begin
-          insert into storage.objects(bucket_id,name) values ('voice-notes','00000000-0000-4000-8000-000000000004/00000000-0000-4000-8000-000000000003/00000000-0000-4000-8000-000000000005');
+          insert into storage.objects(bucket_id,name) values ('voice-notes','00000000-0000-4000-8000-000000000004/00000000-0000-4000-8000-000000000003/00000000-0000-4000-8000-000000000006');
           raise exception 'FAIL: forged upload owner accepted';
         exception when insufficient_privilege then null; end;
       end $$;
-      insert into public.messages(conversation_id,sender_id,audio_url,duration_seconds) values ('00000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000001','/api/voice?key=00000000-0000-4000-8000-000000000004%2F00000000-0000-4000-8000-000000000001%2F00000000-0000-4000-8000-000000000005&storage=supabase',30);
+      insert into public.messages(conversation_id,sender_id,audio_url,duration_seconds) values ('00000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000001','/api/voice?key=00000000-0000-4000-8000-000000000004%2F00000000-0000-4000-8000-000000000001%2F00000000-0000-4000-8000-000000000006&storage=supabase',30);
       select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',true);
       do $$ begin
         if not exists(select 1 from storage.objects) then raise exception 'Recipient cannot read voice'; end if;
@@ -67,9 +75,27 @@ test('migration enforces participant access, sender identity, and approval privi
       do $$ begin
         if exists(select 1 from storage.objects) then raise exception 'FAIL: unrelated user can read voice'; end if;
         begin
-          insert into storage.objects(bucket_id,name) values ('voice-notes','00000000-0000-4000-8000-000000000004/00000000-0000-4000-8000-000000000003/00000000-0000-4000-8000-000000000005');
+          insert into storage.objects(bucket_id,name) values ('voice-notes','00000000-0000-4000-8000-000000000004/00000000-0000-4000-8000-000000000003/00000000-0000-4000-8000-000000000006');
           raise exception 'FAIL: unrelated user can upload voice';
         exception when insufficient_privilege then null; end;
+      end $$;
+
+      select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',true);
+      select public.touch_activity();
+      do $$ begin
+        if not exists(select 1 from public.practitioners where id=-1 and last_seen_at=now()) then raise exception 'Heartbeat did not reach practitioner directory'; end if;
+      end $$;
+      select public.mark_conversation_read('00000000-0000-4000-8000-000000000004',(select id from public.messages where conversation_id='00000000-0000-4000-8000-000000000004' order by created_at desc limit 1));
+      do $$ begin
+        if public.unread_message_count()<>0 then raise exception 'Read reset did not clear incoming messages'; end if;
+      end $$;
+      insert into public.messages(conversation_id,sender_id,audio_url,duration_seconds) values('00000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000002','/api/voice?key=00000000-0000-4000-8000-000000000004%2F00000000-0000-4000-8000-000000000002%2F00000000-0000-4000-8000-000000000008&storage=supabase',2);
+      select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000003',true);
+      do $$ begin
+        begin
+          perform public.mark_conversation_read('00000000-0000-4000-8000-000000000004',(select id from public.messages limit 1));
+          raise exception 'FAIL: unrelated user reset conversation';
+        exception when raise_exception then if sqlerrm like 'FAIL:%' then raise; end if; end;
       end $$;
       reset role;
       insert into realtime.messages(id, extension) values (1, 'broadcast');
@@ -87,6 +113,20 @@ test('migration enforces participant access, sender identity, and approval privi
         if not exists(select 1 from realtime.messages) then raise exception 'Participant cannot receive signaling'; end if;
       end $$;
       insert into realtime.messages(id,extension) values (2,'broadcast');
+
+      select set_config('realtime.topic','typing:00000000-0000-4000-8000-000000000004',true);
+      do $$ begin
+        if not exists(select 1 from realtime.messages) then raise exception 'Participant cannot receive activity'; end if;
+      end $$;
+      select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000003',true);
+      do $$ begin
+        if exists(select 1 from realtime.messages) then raise exception 'FAIL: unrelated user read activity'; end if;
+        begin
+          insert into realtime.messages(id,extension) values(3,'broadcast');
+          raise exception 'FAIL: unrelated user sent activity';
+        exception when insufficient_privilege then null; end;
+      end $$;
+      select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',true);
       select set_config('realtime.topic','messages:00000000-0000-4000-8000-000000000001',true);
       do $$ begin
         if not exists(select 1 from realtime.messages) then raise exception 'User cannot join own message topic'; end if;
@@ -96,11 +136,13 @@ test('migration enforces participant access, sender identity, and approval privi
         if exists(select 1 from realtime.messages) then raise exception 'FAIL: user can join another message topic'; end if;
       end $$;
       reset role;
+      insert into public.platform_config(key,value) values('telegram_admin_ids','100099');
       insert into public.telegram_accounts(user_id,telegram_id,chat_id) values ('00000000-0000-4000-8000-000000000001',100001,100001);
       insert into public.appointments(id,client_id,therapist_id,starts_at,medium,price,client_name,phone,consent_at)
         select '00000000-0000-4000-8000-000000000010','00000000-0000-4000-8000-000000000001',id,now()+interval '3 days','online',1200,'Test client','+251911111111',now() from public.practitioners where user_id='00000000-0000-4000-8000-000000000002';
       do $$ begin
         if (select count(*) from public.notification_jobs where kind='appointment') <> 4 then raise exception 'Booking must queue both recipients and channels'; end if;
+        if not exists(select 1 from public.notification_jobs where kind='admin_booking' and admin_chat_id=100099 and path='/admin') then raise exception 'Admin booking alert missing'; end if;
         if not exists(select 1 from public.notification_jobs where kind='message' and recipient='00000000-0000-4000-8000-000000000002') then raise exception 'Message notification sent to wrong user'; end if;
         if exists(select 1 from public.notification_jobs where summary like '%private test%') then raise exception 'Message contents leaked into alert'; end if;
       end $$;

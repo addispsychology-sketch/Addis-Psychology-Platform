@@ -1,50 +1,35 @@
 'use client';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePlatform } from './Platform';
+import { MessageCircle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 
 export default function MessageToast() {
-  const { messages, ownTherapistId, t } = usePlatform();
-  const [toast, setToast] = useState<{ id: string; text: string; name: string; url: string } | null>(null);
-  const prevMessagesCount = useRef(messages.length);
-
-  useEffect(() => {
-    if (messages.length > prevMessagesCount.current) {
-      const newMsg = messages[messages.length - 1];
-      if (newMsg && ((ownTherapistId && newMsg.from === 'client') || (!ownTherapistId && newMsg.from === 'therapist'))) {
-        setToast({
-          id: newMsg.id,
-          text: newMsg.text || '🎙️ Voice note',
-          name: newMsg.from === 'client' ? 'Client' : 'Therapist',
-          url: ownTherapistId ? `/portal?tab=chat` : `/chat?therapist=${newMsg.therapist}`,
-        });
-        setTimeout(() => setToast(null), 5000);
-      }
+  const {messages,messagesReady,ownTherapistId,t,userId,people,viewedConversation}=usePlatform();
+  const [toast,setToast]=useState<{id:string;name:string;voice:boolean;url:string}|null>(null);
+  const seen=useRef(new Set<string>());
+  const initialized=useRef(false);
+  const account=useRef<string|null>(null);
+  const timer=useRef<ReturnType<typeof setTimeout>|null>(null);
+  useEffect(()=>{
+    if(account.current!==userId){account.current=userId;seen.current.clear();initialized.current=false;setTimeout(()=>setToast(null),0);}
+    if(!userId || !messagesReady) return;
+    if(!initialized.current){messages.forEach(m=>seen.current.add(m.id));initialized.current=true;return;}
+    for(const m of messages){
+      if(seen.current.has(m.id)) continue;
+      seen.current.add(m.id);
+      const incoming=ownTherapistId?m.from==='client':m.from==='therapist';
+      if(!incoming || (document.visibilityState==='visible' && m.conversationId===viewedConversation)) continue;
+      if(timer.current) clearTimeout(timer.current);
+      setTimeout(()=>setToast({id:m.id,name:ownTherapistId?t('A client','ደንበኛ'):people.find(p=>p.id===m.therapist)?.name||t('Your therapist','ባለሙያዎ'),voice:Boolean(m.audio),url:ownTherapistId?`/portal?conversation=${m.conversationId}`:`/chat?therapist=${m.therapist}`}),0);
+      timer.current=setTimeout(()=>setToast(null),8000);
     }
-    prevMessagesCount.current = messages.length;
-  }, [messages, ownTherapistId]);
-
-  return (
-    <AnimatePresence>
-      {toast && (
-        <motion.div
-          initial={{ opacity: 0, y: 50, scale: 0.9 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 20, scale: 0.9 }}
-          style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 9999, background: 'var(--card)', padding: '16px', borderRadius: '12px', boxShadow: '0 8px 30px rgba(0,0,0,0.12)', border: '1px solid var(--border)', maxWidth: '300px', cursor: 'pointer' }}
-          onClick={() => setToast(null)}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-            <span style={{ background: 'var(--brand)', color: 'white', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>💬</span>
-            <strong>{t('New Message', 'አዲስ መልእክት')}</strong>
-          </div>
-          <p style={{ margin: 0, fontSize: '14px', color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{toast.text}</p>
-          <Link href={toast.url} className="solid compact" style={{ display: 'block', marginTop: '12px', textAlign: 'center', textDecoration: 'none' }}>
-            {t('Open Chat', 'ውይይት ክፈት')}
-          </Link>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
+  },[messages,messagesReady,ownTherapistId,userId,viewedConversation,people,t]);
+  useEffect(()=>()=>{if(timer.current) clearTimeout(timer.current);},[]);
+  return <AnimatePresence>{userId && toast && <motion.aside key={toast.id} className="incoming-message-toast" role="status" aria-live="polite" initial={{opacity:0,y:-12}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-12}}>
+    <span className="message-toast-icon"><MessageCircle size={21}/></span>
+    <div><strong>{t('New private message','አዲስ የግል መልዕክት')}</strong><p>{toast.name} {toast.voice?t('sent a voice note.','የድምፅ መልዕክት ልከዋል።'):t('sent you a message.','መልዕክት ልከዋል።')}</p><Link href={toast.url} onClick={()=>setToast(null)}>{t('Open conversation →','ውይይት ክፈት →')}</Link></div>
+    <button type="button" aria-label="Dismiss notification" onClick={()=>setToast(null)}><X size={17}/></button>
+  </motion.aside>}</AnimatePresence>;
 }

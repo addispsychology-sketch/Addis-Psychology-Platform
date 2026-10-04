@@ -1,0 +1,14 @@
+.env*
+.git
+node_modules
+.next
+check_db.js
+run_sql.js
+scripts/verify-chat-live.mjs
+scripts/verify-chat-activity.mjs
+scripts/verify-message-edits.mjs
+scripts/inspect-telegram.mjs
+scripts/verify-broadcast.mjs
+scripts/repair-channel-buttons.mjs
+public/voice-verification.ogg
+scripts/start-booking-dev.mjs

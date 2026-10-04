@@ -1,12 +1,15 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { serviceDb, siteUrl } from './server-services';
-import { miniLink, telegram } from './telegram-server';
+import { miniLink, privateAppButton, telegram, TelegramRejectedError, requireDirectMiniApp } from './telegram-server';
 import { normalizePhone } from './booking-validation';
+import {announcementChannel} from './channel-server';
+import {postText,postActions,postCaptionLength} from './channel-post';
+import {MEDIA_CAPTION_LIMIT} from './channel-media';
 
 type BotMessage = { chat: { id: number; type: string }; from?: { id: number; is_bot?: boolean }; text?: string; caption?: string; photo?: { file_id: string }[]; video?: { file_id: string }; contact?: { user_id?: number; phone_number: string } };
 export type BotUpdate = { update_id: number; message?: BotMessage; callback_query?: { id: string; from: { id: number }; data?: string; message?: BotMessage } };
-type Draft = { id: string; stage: 'content' | 'ready' | 'publishing'; therapist?: number; button: string; caption?: string; media?: string; mediaType?: 'photo' | 'video' };
+type Draft = { id: string; stage: 'content' | 'ready' | 'publishing'; therapist?: number; button: string; title?: string; caption?: string; media?: string; mediaType?: 'photo' | 'video' };
 
 const adminIds = () => (process.env.TELEGRAM_ADMIN_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
 const say = (chat: number, text: string, reply_markup?: unknown, html = false) => telegram('sendMessage', { chat_id: chat, text, ...(html ? { parse_mode: 'HTML' } : {}), ...(reply_markup ? { reply_markup } : {}) });
@@ -17,7 +20,7 @@ const say = (chat: number, text: string, reply_markup?: unknown, html = false) =
 const menu = () => ({
   inline_keyboard: [
     [
-      { text: '🌿 Open Addis Platform', web_app: { url: siteUrl('/account') } },
+      { text: '🌿 Open Addis Platform', web_app: { url: siteUrl('/') } },
     ],
     [
       { text: '💬 Messages', web_app: { url: siteUrl('/chat') } },
@@ -30,16 +33,15 @@ const menu = () => ({
   ],
 });
 
-function draftButtons(draft: Draft) {
-  if (draft.therapist) return [[{ text: '📅 Book this therapist', url: miniLink(`/schedule/${draft.therapist}`) }, { text: '💬 Chat with therapist', url: miniLink(`/chat?therapist=${draft.therapist}`) }]];
-  return [[{ text: '🌿 Open Platform', url: miniLink('/therapists') }]];
+function draftButtons(draft: Draft, preview: boolean) {
+  return postActions(draft.therapist).map(row=>row.map(button=>preview?privateAppButton(button.text,button.path):{text:button.text,url:miniLink(button.path)}));
 }
 
 async function sendPost(chat: number | string, draft: Draft, preview = false) {
-  const reply_markup = { inline_keyboard: draftButtons(draft) };
-  const caption = `${preview ? 'PREVIEW — only you can see this\n\n' : ''}${draft.caption || ''}`;
-  if (draft.media && draft.mediaType) return telegram(draft.mediaType === 'photo' ? 'sendPhoto' : 'sendVideo', { chat_id: chat, [draft.mediaType]: draft.media, caption, reply_markup });
-  return telegram('sendMessage', { chat_id: chat, text: caption, reply_markup });
+  const reply_markup = { inline_keyboard: draftButtons(draft,preview) };
+  const caption = `${preview && !draft.media ? '<b>PRIVATE PREVIEW</b>\n\n' : ''}${postText(draft.title || (draft.therapist?'Meet your practitioner':'From Addis Psychology'),draft.caption || '')}`;
+  if (draft.media && draft.mediaType) return telegram(draft.mediaType === 'photo' ? 'sendPhoto' : 'sendVideo', { chat_id: chat, [draft.mediaType]: draft.media, caption, parse_mode:'HTML',reply_markup,...(draft.mediaType==='video'?{supports_streaming:true}:{}) });
+  return telegram('sendMessage', { chat_id: chat, text: caption,parse_mode:'HTML', reply_markup });
 }
 
 export async function handleBotUpdate(update: BotUpdate) {
@@ -104,21 +106,33 @@ export async function handleBotUpdate(update: BotUpdate) {
     }
     const draft: Draft = { id: randomUUID(), stage: 'content', therapist, button: 'directory' };
     await db.from('telegram_admin_drafts').upsert({ telegram_id: actor, draft, updated_at: new Date().toISOString() }).throwOnError();
-    await say(chat, 'Send the announcement text, or upload a photo/video with a caption (up to 900 characters). You can preview before publishing.'); return;
+    await say(chat, 'Send your announcement, or upload a photo/video with a caption. Use the first line as your heading, followed by the message. You can also upload media first and send its caption next. Media captions must fit within 1,024 characters including the heading and footer. You will receive a private preview before publishing.'); return;
   }
   if (isAdmin && callback?.data === 'draft:new') {
     await db.from('telegram_admin_drafts').upsert({ telegram_id: actor, draft: { id: randomUUID(), stage: 'content', button: 'directory' }, updated_at: new Date().toISOString() }).throwOnError();
-    await say(chat, 'Send your announcement text, or a photo/video with a caption.'); return;
+    await say(chat, 'Send your announcement, or upload a photo/video. Use the first line of your caption as the heading. You can send the caption with the upload or in your next message. You will receive a private preview before publishing.'); return;
   }
   if (isAdmin) {
     const { data: row } = await db.from('telegram_admin_drafts').select('draft').eq('telegram_id', actor).maybeSingle();
     const draft = row?.draft as Draft | undefined;
     if (draft && !callback && !command.startsWith('/') && draft.stage === 'content') {
-      const caption = message.caption || message.text || '';
-      if (!caption.trim() || caption.length > 900) { await say(chat, 'Please add a caption of 1–900 characters.'); return; }
-      draft.caption = caption;
-      draft.media = message.video?.file_id || message.photo?.at(-1)?.file_id;
-      draft.mediaType = message.video ? 'video' : message.photo ? 'photo' : undefined;
+      const caption = (message.caption || message.text || '').trim();
+      const media=message.video?.file_id || message.photo?.at(-1)?.file_id;
+      if(media){draft.media=media;draft.mediaType=message.video?'video':'photo';}
+      if(!caption) {
+        await db.from('telegram_admin_drafts').update({draft}).eq('telegram_id',actor).throwOnError();
+        await say(chat,'Attachment received. Send its caption next, with the heading on the first line.');return;
+      }
+      const lines=caption.split('\n');
+      const hasHeading=lines.length>1 && lines[0].length<=120 && Boolean(lines.slice(1).join('\n').trim());
+      draft.title=hasHeading?lines[0]:draft.therapist?'Meet your practitioner':'From Addis Psychology';
+      draft.caption=hasHeading?lines.slice(1).join('\n').trim():caption;
+      const length=postCaptionLength(draft.title,draft.caption);
+      const limit=draft.media?MEDIA_CAPTION_LIMIT:3000;
+      if(length>limit) {
+        await db.from('telegram_admin_drafts').update({draft}).eq('telegram_id',actor).throwOnError();
+        await say(chat,`Please shorten your ${draft.media?'media caption':'message'} by ${length-limit} characters. The heading and footer count toward Telegram’s limit. Your attachment is kept.`);return;
+      }
       draft.stage = 'ready';
       await db.from('telegram_admin_drafts').update({ draft }).eq('telegram_id', actor).throwOnError();
       await sendPost(chat, draft, true);
@@ -129,12 +143,18 @@ export async function handleBotUpdate(update: BotUpdate) {
     if (draft && callback?.data?.endsWith(draft.id)) {
       if (callback.data.startsWith('cancel:')) { await db.from('telegram_admin_drafts').delete().eq('telegram_id', actor); await say(chat, 'Draft cancelled.'); return; }
       if (callback.data.startsWith('publish:') && draft.stage === 'ready') {
-        const channel = process.env.TELEGRAM_ANNOUNCEMENT_CHAT_ID;
-        if (!channel) { await say(chat, 'Announcement channel is not configured. Your draft is saved.'); return; }
+        try {await requireDirectMiniApp();}
+        catch {await say(chat,'Your preview is ready. Enable the bot’s Main Mini App in BotFather so the channel buttons open the app directly, then tap Publish again.');return;}
+        const channel = await announcementChannel();
         const { data: claimed } = await db.from('telegram_admin_drafts').update({ draft: { ...draft, stage: 'publishing' } }).eq('telegram_id', actor).contains('draft', { id: draft.id, stage: 'ready' }).select('telegram_id');
         if (!claimed?.length) return;
-        try { await sendPost(channel, draft); }
-        catch (error) { await db.from('telegram_admin_drafts').update({ draft }).eq('telegram_id', actor).contains('draft', { id: draft.id }); throw error; }
+        let result;
+        try { result=await sendPost(channel, draft); }
+        catch (error) {
+          if(error instanceof TelegramRejectedError)await db.from('telegram_admin_drafts').update({ draft }).eq('telegram_id', actor).contains('draft', { id: draft.id });
+          await say(chat,error instanceof TelegramRejectedError?'Telegram rejected the post. Check the channel permission and try Publish again.':'Telegram did not confirm delivery. Check the channel before making a new announcement.');return;
+        }
+        if(account)await db.from('channel_posts').insert({id:draft.id,actor:account.user_id,title:draft.title || (draft.therapist?'Meet your practitioner':'From Addis Psychology'),body:draft.caption || '',therapist_id:draft.therapist || null,status:'published',telegram_message_id:result.message_id}).throwOnError();
         await db.from('telegram_admin_drafts').delete().eq('telegram_id', actor).contains('draft', { id: draft.id });
         await say(chat, '✓ Published to official channel.'); return;
       }

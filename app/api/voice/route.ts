@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     const provider = process.env.VOICE_STORAGE || 'supabase';
     if (!['supabase', 'r2'].includes(provider)) throw new Error('Unknown storage provider.');
     const maxMegabytes = provider === 'supabase' ? 50 : 100;
-    if (!['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/mp4;codecs=mp4a.40.2'].includes(contentType) || !Number.isSafeInteger(size) || size <= 0 || size > maxMegabytes * 1024 * 1024) return Response.json({ error: `Unsupported audio or file larger than ${maxMegabytes} MB.` }, { status: 400, headers });
+    if (typeof contentType!=='string' || !['audio/webm','audio/ogg','audio/mp4'].includes(contentType.split(';')[0].trim()) || !Number.isSafeInteger(size) || size <= 0 || size > maxMegabytes * 1024 * 1024) return Response.json({ error: `Unsupported audio or file larger than ${maxMegabytes} MB.` }, { status: 400, headers });
     const { data } = await db.from('conversations').select('id').eq('id', conversationId).single();
     if (!data) return Response.json({ error: 'Conversation not found.' }, { status: 403, headers });
     const key = `${conversationId}/${user.id}/${crypto.randomUUID()}`;
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     }
     const { client, bucket } = storage();
     const uploadUrl = await getSignedUrl(client, new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: contentType, ContentLength: size }), { expiresIn: 300 });
-    return Response.json({ uploadUrl, audioUrl: `/api/voice?key=${encodeURIComponent(key)}${provider === 'supabase' ? '&storage=supabase' : ''}` }, { headers });
+    return Response.json({ uploadUrl, audioUrl: `/api/voice?key=${encodeURIComponent(key)}&storage=r2` }, { headers });
   } catch (error) {
     return Response.json({ error: error instanceof Error && error.message === 'Unauthorized' ? 'Unauthorized' : 'Voice upload is unavailable. Check your server configuration.' }, { status: 400, headers });
   }
@@ -38,11 +38,15 @@ export async function GET(request: Request) {
     const { db } = await authorize(request);
     const params = new URL(request.url).searchParams;
     const key = params.get('key');
-    const provider = params.get('storage');
-    if (provider !== null && provider !== 'supabase') return Response.json({ error: 'Invalid storage reference.' }, { status: 400, headers });
+    const provider = params.get('storage') || process.env.VOICE_STORAGE || 'supabase';
+    if (!['supabase', 'r2'].includes(provider)) return Response.json({ error: 'Invalid storage reference.' }, { status: 400, headers });
     if (!key || !/^[a-f0-9-]{36}\/[a-f0-9-]{36}\/[a-f0-9-]{36}$/.test(key)) return Response.json({ error: 'Invalid audio reference.' }, { status: 400, headers });
-    const audioUrl = `/api/voice?key=${encodeURIComponent(key)}${provider === 'supabase' ? '&storage=supabase' : ''}`;
-    const { data } = await db.from('messages').select('id').eq('audio_url', audioUrl).limit(1).single();
+    // Check both URL forms for backward compatibility (with and without &storage=supabase)
+    const audioUrlWithStorage = `/api/voice?key=${encodeURIComponent(key)}&storage=${provider}`;
+    const audioUrlNoStorage = `/api/voice?key=${encodeURIComponent(key)}`;
+    const { data } = await db.from('messages').select('id')
+      .or(`audio_url.eq.${audioUrlWithStorage},audio_url.eq.${audioUrlNoStorage}`)
+      .limit(1).single();
     if (!data) return Response.json({ error: 'Audio not found.' }, { status: 403, headers });
     if (provider === 'supabase') {
       const { data: signed, error } = await db.storage.from(voiceBucket).createSignedUrl(key, 3600);

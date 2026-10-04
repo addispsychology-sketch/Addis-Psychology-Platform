@@ -4,7 +4,8 @@ import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { usePlatform } from '@/components/Platform';
 import { Page, DemoNote, Photo } from '@/components/Shell';
-import { dateKey, shiftDate, slots, isFutureSlot } from '@/lib/calendar';
+import { dateKey, shiftDate, slots } from '@/lib/calendar';
+import { availableBookingSlots, upcomingBookingDays } from '@/lib/booking-slots';
 import { discountedPrice } from '@/lib/commerce';
 import BookingDetails from '@/components/BookingDetails';
 
@@ -23,12 +24,10 @@ function ScheduleInner() {
   const today = dateKey();
   const days = Array.from({ length: 7 }, (_, i) => shiftDate(today, offset * 7 + i));
 
-  const available = (d: string, s: string) =>
-    isFutureSlot(d, s) &&
-    conf.days.includes(new Date(`${d}T12:00`).getDay()) &&
-    !state.appointments.some(a => a.therapist === id && a.date === d && a.time === s && a.status !== 'cancelled');
+  const available = (d: string, s: string) => availableBookingSlots(id, d, conf, state.appointments).includes(s);
 
-  const quickSlot = isQuick && !chosenDay ? Array.from({ length: 14 }, (_, i) => shiftDate(today, i)).flatMap(d => slots(conf.start, conf.end).filter(s => available(d, s)).map(s => ({day:d,time:s})))[0] : undefined;
+  const quickDay = isQuick && !chosenDay ? upcomingBookingDays(id, conf, state.appointments)[0] : undefined;
+  const quickSlot = quickDay ? {day: quickDay, time: availableBookingSlots(id, quickDay, conf, state.appointments)[0]} : undefined;
   const day = chosenDay || quickSlot?.day || '';
   const time = chosenTime || quickSlot?.time || '';
 

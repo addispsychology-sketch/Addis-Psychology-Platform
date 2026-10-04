@@ -10,46 +10,23 @@ import { requestCall } from '@/components/AudioCalls';
 import { therapistAvailability } from '@/lib/presence';
 import { Mic, Send, MessageSquare, Shield, Calendar, CreditCard } from 'lucide-react';
 import { Photo, Modal, Page } from '@/components/Shell';
-import { bundles, discountedPrice, formatVoiceTime } from '@/lib/commerce';
+import { bundles, formatVoiceTime } from '@/lib/commerce';
 import { motion, AnimatePresence } from 'framer-motion';
-import { getSupabase } from '@/lib/supabase';
-import type { RealtimeChannel } from '@supabase/supabase-js';
+import { useConversationActivity } from '@/lib/useConversationActivity';
+import ConversationActivity from '@/components/ConversationActivity';
+import EditableMessage from '@/components/EditableMessage';
 
 function TrueFullscreenChat() {
-  const { t, people, balance, messages, send, loadMoreMessages, markAsRead, userId, ownTherapistId, conversations, ensureConversation, lang, settings, money, buy, theme, setTheme } = usePlatform();
+  const { t, people: allPeople, directoryReady, directoryError, refreshDirectory, balance, messages, send, markAsRead, unreadConversation, userId, ownTherapistId, conversations, setActiveConversation, setViewedConversation, ensureConversation, lang, settings, money, buy, theme, setTheme } = usePlatform();
+  const people = allPeople.filter(p => !p.badge);
 
   const params = useSearchParams();
   const initialId = Number(params.get('therapist') || (people[0] ? people[0].id : 1));
 
   const [chosenId, setSelectedId] = useState<number | null>(null);
-  const selectedId = chosenId ?? (people.some(p => p.id === initialId) ? initialId : people[0]?.id ?? initialId);
+  const requestedId = chosenId ?? initialId;
+  const selectedId = people.some(p => p.id === requestedId) ? requestedId : people[0]?.id ?? initialId;
   const selectedConversationId = conversations.find(c => c.therapist_id === selectedId && c.client_id === userId)?.id;
-  const [remoteTyping, setRemoteTyping] = useState(false);
-  const typingChannel = useRef<RealtimeChannel | null>(null);
-  const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => { if (selectedId && messages.length) void markAsRead(selectedId); }, [selectedId, messages, markAsRead]);
-  useEffect(() => {
-    setRemoteTyping(false);
-    if (!selectedConversationId || !userId) return;
-    const db = getSupabase();
-    if (!db) return;
-    const channel = db.channel(`typing:${selectedConversationId}`);
-    typingChannel.current = channel;
-    channel.on('broadcast', { event: 'typing' }, (payload: { payload: { u?: string } }) => {
-      if (payload.payload.u === userId) return;
-      setRemoteTyping(true);
-      if (typingTimeout.current) clearTimeout(typingTimeout.current);
-      typingTimeout.current = setTimeout(() => setRemoteTyping(false), 3000);
-    }).subscribe();
-    return () => {
-      if (typingTimeout.current) clearTimeout(typingTimeout.current);
-      typingChannel.current = null;
-      void db.removeChannel(channel);
-    };
-  }, [selectedConversationId, userId]);
-  const notifyTyping = () => {
-    if (userId) void typingChannel.current?.send({ type: 'broadcast', event: 'typing', payload: { u: userId } });
-  };
   const [showMobileList, setShowMobileList] = useState(!params.get('therapist'));
   const [onlineOnly, setOnlineOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -60,7 +37,8 @@ function TrueFullscreenChat() {
   const [errorMessage, setErrorMessage] = useState('');
   const [purchaseNotice, setPurchaseNotice] = useState('');
   const [quickPackageModal, setQuickPackageModal] = useState(false);
-  const isTherapistTyping = remoteTyping;
+  const activity=useConversationActivity(selectedConversationId,userId,isHoldingVoice);
+  const isTherapistTyping=activity.remote!=='idle';
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
 
@@ -79,7 +57,22 @@ function TrueFullscreenChat() {
   const activePerson = people.find(p => p.id === selectedId);
   const credits = balance(selectedId);
   const thread = messages.filter(m => m.therapist === selectedId);
-  const hasCredits = credits.texts + credits.voiceSeconds > 0;
+  const hasCredits = !!userId && credits.texts + credits.voiceSeconds > 0;
+  const lastMessageId=thread.at(-1)?.id;
+  useEffect(()=>{
+    if(!userId || !hasCredits || ownTherapistId || !people.some(p=>p.id===selectedId && !p.badge) || selectedConversationId) return;
+    void ensureConversation(selectedId).catch(()=>{});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[selectedId,userId,hasCredits,ownTherapistId,people.length,selectedConversationId]);
+  useEffect(()=>{
+    setActiveConversation(selectedConversationId||'');setViewedConversation(selectedConversationId||'');
+    return ()=>{setActiveConversation('');setViewedConversation('');};
+  },[selectedConversationId,setActiveConversation,setViewedConversation]);
+  useEffect(()=>{
+    const read=()=>{if(selectedConversationId && lastMessageId && document.visibilityState==='visible') void markAsRead(selectedConversationId,lastMessageId);};
+    read();document.addEventListener('visibilitychange',read);
+    return ()=>document.removeEventListener('visibilitychange',read);
+  },[selectedConversationId,lastMessageId,markAsRead]);
   const isLowCredits = (credits.texts > 0 && credits.texts <= 5) || (credits.voiceSeconds > 0 && credits.voiceSeconds <= 60);
 
   const s = settings(selectedId);
@@ -92,7 +85,7 @@ function TrueFullscreenChat() {
   function getTherapistAvailability(therapistId: number) {
     return therapistAvailability(settings(therapistId), clock);
   }
-  const { isOnline: isAvailableNow, minsLeft: minutesUntilOffline } = getTherapistAvailability(selectedId);
+  const { isOnline: isAvailableNow } = getTherapistAvailability(selectedId);
 
   const cycleTheme = () => {
     if (theme === 'white') setTheme('dark');
@@ -175,12 +168,12 @@ function TrueFullscreenChat() {
           const blob = new Blob(recordedChunks.current, { type: rec.mimeType || 'audio/webm' });
           const audioUrl = URL.createObjectURL(blob);
           sendingRef.current = true; setSending(true);
-          const ok = await send(selectedId, 'voice', audioUrl, elapsed / 1000);
+          const result = await send(selectedId, 'voice', audioUrl, elapsed / 1000);
           URL.revokeObjectURL(audioUrl);
           sendingRef.current = false;
-          if (alive.current) { setSending(false); if (!ok) setErrorMessage('Voice note could not be sent. Please retry.'); } else {
-            URL.revokeObjectURL(audioUrl);
-            setErrorMessage(t('Not enough voice time. Please top up.', 'በቂ የድምፅ ጊዜ የለም። ጥቅል ይግዙ።'));
+          if (alive.current) {
+            setSending(false);
+            if (!result.ok) setErrorMessage(result.error || 'Voice note could not be sent. Please retry.');
           }
         }
       };
@@ -266,9 +259,10 @@ function TrueFullscreenChat() {
     const text = (customText ?? inputText).trim();
     if (!text || sendingRef.current) return;
     sendingRef.current = true; setSending(true);
-    const ok = await send(selectedId, 'text', text);
+    activity.stop();
+    const result = await send(selectedId, 'text', text);
     sendingRef.current = false; setSending(false);
-    if (ok) { setInputText(''); setErrorMessage(''); } else setErrorMessage('Message failed. Please retry.');
+    if (result.ok) { setInputText(''); setErrorMessage(''); } else setErrorMessage(result.error || 'Message failed. Please retry.');
   }
 
   function handleInstantBuy(bundleId: string) {
@@ -279,8 +273,8 @@ function TrueFullscreenChat() {
     }
   }
 
-  if (!userId) return <Page><section className="chat-signin-card"><span className="account-eyebrow">A PRIVATE SPACE TO TALK</span><h1>Start with a hello.</h1><p>Sign in or create a free account to message a therapist. Your conversations stay connected to you, on the website and in Telegram.</p><Link className="solid" href={`/account?next=${encodeURIComponent(params.get('therapist') ? `/chat?therapist=${initialId}` : '/chat')}`}>Sign in / Create account →</Link><p><Link href="/therapists">Explore therapists first</Link></p></section></Page>;
   if (ownTherapistId) return <main className="platform-main"><Link className="solid" href="/portal">Open your client conversations</Link></main>;
+  if (!activePerson && (!directoryReady || directoryError)) return <Page><section className="chat-signin-card" role="status"><h1>{directoryError ? 'Therapists couldn’t load.' : 'Loading therapists…'}</h1><p>{directoryError || 'Your chat directory will appear here shortly.'}</p>{directoryError && <button onClick={() => void refreshDirectory()}>Try again</button>}</section></Page>;
   if (!activePerson) {
     const userCredits = balance(0);
     return (
@@ -299,8 +293,8 @@ function TrueFullscreenChat() {
                 <h1>{t('Find your therapist.', 'ባለሙያዎን ይምረጡ።')}</h1>
                 <p className="chat-desc">
                   {t(
-                    'Choose an approved practitioner from the directory to start private messaging, or purchase your package in advance.',
-                    'የግል ውይይት ለመጀመር ከተፈቀደላቸው ባለሙያዎች ዝርዝር ይምረጡ ወይም አስቀድመው ጥቅል ይግዙ።'
+                    'Browse therapists and see who is online. A messaging package lets you send private text and voice notes to any approved therapist.',
+                    'ባለሙያዎችን ይመልከቱ እና በመስመር ላይ ያሉትን ይወቁ። የመልዕክት ጥቅል በመግዛት ለማንኛውም የተፈቀደለት ባለሙያ የግል ጽሑፍና ድምፅ መላክ ይችላሉ።'
                   )}
                 </p>
               </div>
@@ -373,7 +367,7 @@ function TrueFullscreenChat() {
       <div className={`chat-workspace-grid ${showMobileList ? 'mobile-show-sidebar' : ''}`}>
 
         {/* ── LEFT: CONVERSATION LIST (SIDEBAR) ── */}
-        <aside className="chat-native-sidebar"><div className="chat-list-intro"><span className="eyebrow">YOUR SPACE TO CONNECT</span><h1>Let’s talk.</h1><p>{people.filter(p => getTherapistAvailability(p.id).isOnline).length} therapists available now. Choose someone to start a conversation.</p></div><div className="chat-list-filters"><button aria-pressed={!onlineOnly} onClick={() => setOnlineOnly(false)}>All therapists</button><button aria-pressed={onlineOnly} onClick={() => setOnlineOnly(true)}>Online now</button></div>
+        <aside className="chat-native-sidebar"><div className="chat-list-intro"><span className="eyebrow">YOUR SPACE TO CONNECT</span><h1>Let’s talk.</h1><p>{people.filter(p => getTherapistAvailability(p.id).isOnline).length} therapists online now. Choose any therapist. Buy a package to send private text and voice notes.</p><Link href="/packages" className="care-back">View messaging packages →</Link></div><div className="chat-list-filters"><button aria-pressed={!onlineOnly} onClick={() => setOnlineOnly(false)}>All therapists</button><button aria-pressed={onlineOnly} onClick={() => setOnlineOnly(true)}>Online now</button></div>
           {/* Sidebar Top: Search & discreet exit link */}
           <div className="native-sidebar-header">
             <input
@@ -399,7 +393,8 @@ function TrueFullscreenChat() {
               .map(p => {
                 const isSelected = p.id === selectedId;
                 const avail = getTherapistAvailability(p.id);
-                const msgCount = messages.filter(m => m.therapist === p.id).length;
+                const conversation=conversations.find(c=>c.therapist_id===p.id && c.client_id===userId);
+                const msgCount=conversation?unreadConversation(conversation.id):0;
 
                 return (
                   <button
@@ -423,11 +418,7 @@ function TrueFullscreenChat() {
                       </div>
                       <small className="native-title-line">{p.title}</small>
                       <span className="native-avail-line">
-                        {avail.isOnline
-                          ? avail.minsLeft <= 60
-                            ? `🟢 ${t(`Online · may leave in ~${avail.minsLeft}m`, `ዝግጁ (በ ~${avail.minsLeft}ደ ያበቃል)`)}`
-                            : `🟢 ${t(`Online until ${avail.end}`, `እስከ ${avail.end} ዝግጁ`)}`
-                          : `⚪ ${t(`Offline · Hours ${avail.start}–${avail.end}`, `የሥራ ሰዓት: ${avail.start}–${avail.end}`)}`}
+                        {avail.isOnline?`🟢 ${t('Online · available','በመስመር ላይ · ዝግጁ')}`:`⚪ ${t(`Offline · Hours ${avail.start}–${avail.end}`,`የሥራ ሰዓት: ${avail.start}–${avail.end}`)}`}
                       </span>
                     </div>
                   </button>
@@ -466,11 +457,7 @@ function TrueFullscreenChat() {
                 <div className="native-status-inline">
                   <span className={`native-dot-mini ${isAvailableNow ? 'online' : ''}`} />
                   <span className="status-countdown-label">
-                    {isAvailableNow
-                      ? minutesUntilOffline <= 60
-                        ? t(`Online · may leave in ~${minutesUntilOffline} min`, `በመስመር ላይ · በ ~${minutesUntilOffline} ደቂቃ ውስጥ ያበቃል`)
-                        : t(`Online until ${s.chatEnd} (~${Math.floor(minutesUntilOffline / 60)}h ${minutesUntilOffline % 60}m left)`, `በመስመር ላይ እስከ ${s.chatEnd}`)
-                      : t(`Offline · Active ${s.chatStart}–${s.chatEnd}`, `ከመስመር ውጭ · የሥራ ሰዓት: ${s.chatStart}–${s.chatEnd}`)}
+                    {isAvailableNow?t('Online · available','በመስመር ላይ · ዝግጁ'):t(`Offline · Message anytime`,`ከመስመር ውጭ · መልዕክት ይተዉ`)}
                   </span>
                 </div>
               </div>
@@ -522,21 +509,21 @@ function TrueFullscreenChat() {
             {!hasCredits && (
               <div className="credit-depleted-alert-card">
                 <div className="alert-content-left">
-                  <strong>⚠ {t('Message Credits Depleted', 'የመልዕክት ክሬዲት አልቋል')}</strong>
+                  <strong>{t('A package opens the conversation.', 'ጥቅል በመግዛት ውይይቱን ይጀምሩ።')}</strong>
                   <p>
                     {t(
-                      `You have no text credits or voice minutes remaining. Top up your package to continue private messaging with ${activePerson.name}.`,
+                      `Browse freely. Buy a messaging package to send text or voice notes to ${activePerson.name} or any other therapist.`,
                       `ከ ${activePerson.name} ጋር ለመወያየት ክሬዲት አልቋል። መልዕክት ለመላክ እባክዎ ጥቅል ይግዙ።`
                     )}
                   </p>
                 </div>
-                <button
+                {userId ? <button
                   type="button"
                   className="solid compact alert-action-btn"
                   onClick={() => setQuickPackageModal(true)}
                 >
-                  + {t('Top Up Credits', 'ክሬዲት ጨምር')}
-                </button>
+                  + {t('Buy a package', 'ጥቅል ይግዙ')}
+                </button> : <Link className="solid compact alert-action-btn" href={`/account?next=${encodeURIComponent(`/chat?therapist=${selectedId}`)}`}>Sign in / Create account →</Link>}
               </div>
             )}
 
@@ -549,7 +536,7 @@ function TrueFullscreenChat() {
                 <span style={{ fontSize: '28px' }}>💬</span>
                 <h3>{t('Safe & Private Sanctuary', 'አስተማማኝ መጠጊያ')}</h3>
                 <p>
-                  {isAvailableNow
+                  {!hasCredits ? t('Choose a messaging package to start. Your credits work with every approved therapist.', 'ውይይት ለመጀመር የመልዕክት ጥቅል ይግዙ። ክሬዲትዎ ከሁሉም ከተፈቀደላቸው ባለሙያዎች ጋር ይሰራል።') : isAvailableNow
                     ? t(
                         `${activePerson.name} is online. Type a message or hold the mic button to record a voice note.`,
                         `${activePerson.name} አሁን በመስመር ላይ ናቸው። ጽሑፍ ይጻፉ ወይም ማይክሮፎኑን ተጭነው ይያዙ።`
@@ -588,11 +575,11 @@ function TrueFullscreenChat() {
                       <small className="native-bubble-author">
                         {isMe ? t('You', 'እርስዎ') : activePerson.name}
                       </small>
-                      {m.text && <p className="native-bubble-body">{m.text}</p>}
+                      {m.text && <EditableMessage message={m} mine={isMe} bodyClass="native-bubble-body" />}
                       {m.audio && (
                         <div className="native-bubble-audio">
                           <PrivateAudio src={m.audio} />
-                          {m.durationSeconds && <small>{formatVoiceTime(m.durationSeconds)} {t('voice min used', 'የድምፅ ደቂቃ ተጠቅመዋል')}</small>}
+                          {m.durationSeconds && <small>{formatVoiceTime(m.durationSeconds)} {isMe?t('voice min used', 'የድምፅ ደቂቃ ተጠቅመዋል'):t('voice min','የድምፅ ደቂቃ')}</small>}
                         </div>
                       )}
                       <div className="native-bubble-meta">
@@ -610,26 +597,8 @@ function TrueFullscreenChat() {
               })}
             </AnimatePresence>
 
-            {/* Live Typing Indicator */}
-            {isTherapistTyping && (
-              <motion.div
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                className="native-msg-row in"
-              >
-                <div className="native-bubble native-typing-bubble">
-                  <div className="typing-dots-anim">
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                  <small>{activePerson.name} {t('is typing…', 'በመጻፍ ላይ ናቸው…')}</small>
-                </div>
-              </motion.div>
-            )}
+            <ConversationActivity state={activity.remote} name={activePerson.name} />
 
-            <button type="button" onClick={loadMoreMessages}>Load earlier messages</button>
             <div ref={messagesEndRef} />
           </div>
 
@@ -696,11 +665,11 @@ function TrueFullscreenChat() {
                 <textarea
                   rows={1}
                   aria-label={t('Message box', 'የመልዕክት መጻፊያ')}
-                  placeholder={t('Type message… (Enter to send)', 'መልዕክት ይጻፉ…')}
+                  placeholder={!userId ? t('Sign in to start messaging', 'መልዕክት ለመላክ ይግቡ') : !credits.texts ? t('Buy text credits to send a message', 'ጽሑፍ ለመላክ ጥቅል ይግዙ') : t('Type message… (Enter to send)', 'መልዕክት ይጻፉ…')}
                   value={inputText}
                   maxLength={2000}
-                  disabled={isHoldingVoice}
-                  onChange={e => { setInputText(e.target.value); notifyTyping(); }}
+                  disabled={isHoldingVoice || !userId || credits.texts <= 0}
+                  onChange={e => { setInputText(e.target.value); activity.typing(Boolean(e.target.value.trim())); }}
                   onKeyDown={e => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
@@ -720,6 +689,7 @@ function TrueFullscreenChat() {
                   onContextMenu={e => e.preventDefault()}
                   title={t('Hold finger down to record audio, release to send', 'ተጭነው በመያዝ ድምፅ ይቅረጹ')}
                   aria-label={t('Hold to record voice message', 'ተጭነው በመያዝ ድምፅ ይቅረጹ')}
+                  disabled={!userId || credits.voiceSeconds <= 0 || sending}
                 >
                   <Mic size={20} aria-hidden="true" />
                 </button>
@@ -727,7 +697,7 @@ function TrueFullscreenChat() {
                 <button
                   type="button"
                   className="solid native-send-btn"
-                  disabled={sending || !inputText.trim()}
+                  disabled={sending || !userId || credits.texts <= 0 || !inputText.trim()}
                   onClick={() => handleSendText()}
                   aria-label={t('Send message', 'መልዕክት ላክ')}
                 >
@@ -745,8 +715,8 @@ function TrueFullscreenChat() {
           <div className="package-modal-header-intro">
             <p>
               {t(
-                `Credits are for ${activePerson.name}. Voice time is charged by recorded seconds, rounded up to the next second. Record for as long as your balance allows.`,
-                `ጥቅሉ ለ ${activePerson.name} ብቻ ነው። የድምፅ ጊዜ በተቀዳው ሰከንድ ይቀነሳል፤ ክፍልፋይ ወደ ቀጣዩ ሙሉ ሰከንድ ይጠጋጋል። ቀሪ ጊዜዎ እስከሚፈቅድ መቅዳት ይችላሉ።`
+                'Your credits work with every approved therapist, including anyone online now. Voice time is charged by recorded seconds, rounded up to the next second.',
+                'ክሬዲትዎ በመስመር ላይ ካሉት ጨምሮ ከሁሉም ከተፈቀደላቸው ባለሙያዎች ጋር ይሰራል። የድምፅ ጊዜ በተቀዳው ሰከንድ ይቀነሳል።'
               )}
             </p>
           </div>
@@ -754,7 +724,7 @@ function TrueFullscreenChat() {
           <div className="package-selection-grid">
             {bundles.map((b, i) => {
               const isPopular = i === 1;
-              const discounted = discountedPrice(b.price, s.discount);
+              const discounted = b.price;
               const tierName =
                 i === 0 ? t('TEXT', 'ጽሑፍ') : i === 1 ? t('VOICE', 'ድምፅ') : t('TEXT + VOICE', 'ጽሑፍ + ድምፅ');
 
@@ -766,7 +736,6 @@ function TrueFullscreenChat() {
                   <span className="package-tier-name">{tierName}</span>
                   <div className="package-price-wrap">
                     <strong className="package-amount">{money(discounted)}</strong>
-                    {s.discount > 0 && <small className="package-discount-tag">-{s.discount}%</small>}
                   </div>
                   <ul className="package-features-list">
                     <li>

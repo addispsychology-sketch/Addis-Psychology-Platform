@@ -1,20 +1,34 @@
 import 'server-only';
 import { serviceDb, siteUrl } from './server-services';
+import { miniAppLink } from './telegram-links';
+
+export class TelegramRejectedError extends Error {}
 
 export async function telegram(method: string, payload: Record<string, unknown>) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) throw new Error('Telegram is awaiting setup.');
   // Never surface the response body or URL: they can contain contacts or the bot token.
-  const result = await fetch(`https://api.telegram.org/bot${token}/${method}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(15000) }).catch(() => { throw new Error('Telegram is temporarily unavailable.'); });
+  const timeout = method === 'sendPhoto' || method === 'sendVideo' ? 45000 : 15000;
+  const result = await fetch(`https://api.telegram.org/bot${token}/${method}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(timeout) }).catch(() => { throw new Error('Telegram is temporarily unavailable.'); });
   const body = await result.json();
-  if (!result.ok || !body.ok) throw new Error('Telegram could not deliver this request.');
+  if (!result.ok || !body.ok) throw new TelegramRejectedError('Telegram could not deliver this request.');
   return body.result;
 }
 
 export function miniLink(path: string) {
-  const bot = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME;
-  if (!bot || !/^[a-zA-Z0-9_]+$/.test(bot)) return siteUrl(path);
-  return `https://t.me/${bot}?startapp=${Buffer.from(path).toString('base64url')}`;
+  return miniAppLink(process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME, path, process.env.TELEGRAM_MINI_APP_SHORT_NAME);
+}
+
+export function mainMiniAppReady(bot: {has_main_web_app?:boolean}) {
+  return bot.has_main_web_app===true || /^[a-zA-Z0-9_]{1,64}$/.test(process.env.TELEGRAM_MINI_APP_SHORT_NAME || '');
+}
+
+export async function requireDirectMiniApp() {
+  if(!mainMiniAppReady(await telegram('getMe',{})))throw new Error('Enable this bot’s Main Mini App in BotFather before publishing direct app buttons.');
+}
+
+export function privateAppButton(text: string, path: string) {
+  return { text, web_app: { url: siteUrl(path) } };
 }
 
 export async function telegramSession(identity: { id: number; name: string }, linkUserId?: string, create = false) {

@@ -3,8 +3,9 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePlatform } from '@/components/Platform';
 import { Page, DemoNote, Flower, Photo, Presence, Modal } from '@/components/Shell';
+import BookingDetails from '@/components/BookingDetails';
 import { discountedPrice } from '@/lib/commerce';
-import { dateKey, shiftDate, slots, isFutureSlot } from '@/lib/calendar';
+import { availableBookingSlots, upcomingBookingDays } from '@/lib/booking-slots';
 import { therapistAvailability } from '@/lib/presence';
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -36,7 +37,8 @@ function AvailabilityBlock({ id }: { id: number }) {
 }
 
 export default function Directory() {
-  const { t, people, settings, state, save, money, book } = usePlatform();
+  const { t, people: allPeople, directoryReady, directoryError, refreshDirectory, settings, state, save, money } = usePlatform();
+  const people = allPeople.filter(p => !p.badge);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const [profileId, setProfileId] = useState<number | null>(null);
@@ -55,42 +57,20 @@ export default function Directory() {
 
   const person = people.find(p => p.id === profileId);
   const quickPerson = people.find(p => p.id === quickBookId);
+  const quickDays = quickPerson ? upcomingBookingDays(quickPerson.id, settings(quickPerson.id), state.appointments) : [];
+  const quickSlots = quickPerson ? availableBookingSlots(quickPerson.id, qbDate, settings(quickPerson.id), state.appointments) : [];
 
   // Prepare quick book dates & slots
   function openQuickBook(id: number) {
     const s = settings(id);
-    const today = dateKey();
-    const candidateDays = Array.from({ length: 10 }, (_, i) => shiftDate(today, i))
-      .filter(d => s.days.includes(new Date(`${d}T12:00`).getDay()));
-
-    const firstDay = candidateDays[0] || today;
-    const daySlots = slots(s.start, s.end).filter(time =>
-      isFutureSlot(firstDay, time) &&
-      !state.appointments.some(a => a.therapist === id && a.date === firstDay && a.time === time && a.status !== 'cancelled')
-    );
+    const firstDay = upcomingBookingDays(id, s, state.appointments)[0] || '';
+    const daySlots = availableBookingSlots(id, firstDay, s, state.appointments);
 
     setQbMedium('online');
     setQbDate(firstDay);
-    setQbTime(daySlots[0] || '10:00');
+    setQbTime(daySlots[0] || '');
     setQbSuccess(false);
     setQuickBookId(id);
-  }
-
-  function handleQuickBookSubmit() {
-    if (!quickBookId || !qbDate || !qbTime) return;
-    const s = settings(quickBookId);
-    const price = discountedPrice(qbMedium === 'online' ? s.online : s.inperson, s.discount);
-    const success = book({
-      therapist: quickBookId,
-      date: qbDate,
-      time: qbTime,
-      medium: qbMedium,
-      price,
-      client: '',
-    });
-    if (success) {
-      setQbSuccess(true);
-    }
   }
 
   return (
@@ -220,9 +200,13 @@ export default function Directory() {
         })}
       </div>
 
-      {!results.length && (
+      {(!directoryReady || directoryError) && <div className="empty-state" role="status">
+        <h2>{directoryError || t('Loading therapists…', 'ባለሙያዎችን በመጫን ላይ…')}</h2>
+        {directoryError && <button onClick={() => void refreshDirectory()}>{t('Try again', 'እንደገና ይሞክሩ')}</button>}
+      </div>}
+      {directoryReady && !directoryError && !results.length && (
         <div className="empty-state" style={{ padding: '40px', border: '3px solid var(--ink)', margin: '32px 0', textAlign: 'center' }}>
-          <h2>{t('No matching therapists found.', 'ተዛማጅ ባለሙያ አልተገኘም።')}</h2>
+          <h2>{filter === 'available' ? t('No therapists are online just now.', 'አሁን በመስመር ላይ ያሉ ባለሙያዎች የሉም።') : filter === 'saved' ? t('You haven’t saved a therapist yet.', 'እስካሁን ባለሙያ አላስቀመጡም።') : query ? t('No therapists match this search.', 'ለዚህ ፍለጋ ተዛማጅ ባለሙያ አልተገኘም።') : t('No therapists are listed yet.', 'እስካሁን የተመዘገቡ ባለሙያዎች የሉም።')}</h2>
           <button onClick={() => { setQuery(''); setFilter('all'); }}>{t('Clear search & filters', 'ማጣሪያውን አጥፋ')}</button>
         </div>
       )}
@@ -282,33 +266,18 @@ export default function Directory() {
         </Modal>
       )}
 
-      {/* ── FAST 1-CLICK QUICK BOOK MODAL ── */}
+      {/* Quick booking uses the same contact form and API as the full schedule. */}
       {quickPerson && (
         <Modal title={`⚡ ${t('Quick Book Appointment', 'ፈጣን ቀጠሮ')} · ${quickPerson.name}`} close={() => setQuickBookId(null)}>
-          {qbSuccess ? (
-            <div style={{ textAlign: 'center', padding: '24px 0' }}>
-              <div style={{ fontSize: '48px', marginBottom: '12px' }}>✓</div>
-              <h2 style={{ fontSize: '28px', margin: '0 0 12px' }}>{t('Appointment Confirmed!', 'ቀጠሮዎ ተረጋግጧል!')}</h2>
-              <p style={{ fontSize: '16px', maxWidth: '500px', margin: 'auto' }}>
-                {t(
-                  `Your ${qbMedium === 'online' ? 'Online' : 'In-person'} session with ${quickPerson.name} on ${qbDate} at ${qbTime} has been booked.`,
-                  `ከ ${quickPerson.name} ጋር በ ${qbDate} በ ${qbTime} የነበረዎት ቀጠሮ ተመዝግቧል።`
-                )}
-              </p>
-              <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginTop: '24px' }}>
-                <Link href="/appointments" className="solid">{t('View My Bookings', 'ቀጠሮዎቼን እይ')}</Link>
-                <button onClick={() => setQuickBookId(null)}>{t('Close', 'ዝጋ')}</button>
-              </div>
-            </div>
-          ) : (
+          {!qbSuccess && (
             <div className="quick-book-modal-form">
               <p style={{ margin: 0, fontSize: '14px', color: 'var(--muted-text)' }}>
                 {t('Book in seconds without navigating through multiple pages.', 'በርካታ ገጾችን ሳያልፉ በሰከንዶች ውስጥ ቀጠሮ ይያዙ።')}
               </p>
 
               {/* Step 1: Session Format */}
-              <label>
-                {t('Choose Format', 'የቀጠሮ ዓይነት')}
+              <fieldset className="quick-book-fieldset">
+                <legend>{t('Choose Format', 'የቀጠሮ ዓይነት')}</legend>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '6px' }}>
                   <button
                     type="button"
@@ -327,15 +296,18 @@ export default function Directory() {
                     🏥 {t('In-Person Office', 'በአካል')} ({money(discountedPrice(settings(quickPerson.id).inperson, settings(quickPerson.id).discount))})
                   </button>
                 </div>
-              </label>
+              </fieldset>
 
               {/* Step 2: Date Selection */}
               <label>
                 {t('Available Date', 'ቀን ይምረጡ')}
-                <select value={qbDate} onChange={e => setQbDate(e.target.value)}>
-                  {Array.from({ length: 14 }, (_, i) => shiftDate(dateKey(), i))
-                    .filter(d => settings(quickPerson.id).days.includes(new Date(`${d}T12:00`).getDay()))
-                    .map(d => (
+                <select value={qbDate} disabled={!quickDays.length} onChange={e => {
+                  const day = e.target.value;
+                  setQbDate(day);
+                  setQbTime(availableBookingSlots(quickPerson.id, day, settings(quickPerson.id), state.appointments)[0] || '');
+                }}>
+                  {!quickDays.includes(qbDate) && <option value="">{t('Choose an available date', 'ቀን ይምረጡ')}</option>}
+                  {quickDays.map(d => (
                       <option key={d} value={d}>
                         {new Date(`${d}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric' })}
                       </option>
@@ -344,13 +316,10 @@ export default function Directory() {
               </label>
 
               {/* Step 3: Earliest Slot Selection */}
-              <label>
-                {t('Select Time Slot', 'ሰዓት ይምረጡ')}
+              <fieldset className="quick-book-fieldset">
+                <legend>{t('Select Time Slot · Addis Ababa (UTC+3)', 'ሰዓት ይምረጡ · አዲስ አበባ')}</legend>
                 <div className="quick-slot-list">
-                  {slots(settings(quickPerson.id).start, settings(quickPerson.id).end)
-                    .filter(time => isFutureSlot(qbDate, time))
-                    .slice(0, 6)
-                    .map(time => (
+                  {quickSlots.map(time => (
                       <button
                         type="button"
                         key={time}
@@ -362,18 +331,17 @@ export default function Directory() {
                       </button>
                     ))}
                 </div>
-              </label>
+                {!quickSlots.length && <p className="muted">{t('No available times for this date. Choose another date or view the full calendar.', 'ለዚህ ቀን ክፍት ሰዓት የለም። ሌላ ቀን ይምረጡ።')}</p>}
+              </fieldset>
 
               <div style={{ display: 'flex', gap: '12px', marginTop: '16px', alignItems: 'center' }}>
-                <button className="solid" style={{ flex: 1 }} onClick={handleQuickBookSubmit}>
-                  {t('Confirm Instant Booking', 'ቀጠሮውን አረጋግጥ')}
-                </button>
-                <Link href={`/schedule/${quickPerson.id}`} style={{ fontSize: '12px' }}>
+                <Link href={`/schedule/${quickPerson.id}?date=${qbDate}&time=${qbTime}&medium=${qbMedium}`} style={{ fontSize: '12px' }}>
                   {t('Or view full calendar →', 'ወይም ሙሉ ሰሌዳ ይመልከቱ →')}
                 </Link>
               </div>
             </div>
           )}
+          <BookingDetails key={quickPerson.id} therapist={quickPerson.id} day={qbDate} time={qbTime} medium={qbMedium} available={quickSlots.includes(qbTime)} onBooked={() => setQbSuccess(true)} />
         </Modal>
       )}
     </Page>

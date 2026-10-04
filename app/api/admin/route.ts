@@ -1,3 +1,5 @@
+import {after} from 'next/server';
+import {deliverNotifications} from '@/lib/notifications';
 import { authorizeAdmin } from '@/lib/admin-auth';
 import { apiError } from '@/lib/server-services';
 export async function GET(request: Request) {
@@ -37,7 +39,6 @@ export async function POST(request: Request) {
   } else if(input.action==='payment') {
    if(input.approve===true && input.verified!==true) throw new Error('Review the payment screenshot and match the amount, recipient and transaction to your bank records first.');
    const {error}=await db.rpc('review_payment',{request_id:input.id,actor:user.id,approve:input.approve===true});if(error)throw new Error(error.message);
-   if(input.approve) { const { notifyUser } = await import('@/lib/telegram-admin'); const {data:req}=await db.from('payment_requests').select('user_id,kind').eq('id',input.id).single(); if(req) void notifyUser(req.user_id, "? <b>Package Approved!</b>\n\nYour  package has been approved and added to your wallet."); }
   } else if(input.action==='refund') {
    if(input.transferred!==true) throw new Error('Complete the bank transfer before recording it.');
    const {error}=await db.rpc('complete_refund',{request_id:input.id,actor:user.id,bank_reference:input.reference});if(error)throw new Error(error.message);
@@ -61,6 +62,7 @@ export async function POST(request: Request) {
    if(changed.error)throw new Error('Access is restricted, but the identity update needs retrying.');
   } else throw new Error('Unknown administrator action.');
   await db.from('admin_audit').insert({actor:user.id,action:input.action,target:String(input.id)}).throwOnError();
+  after(()=>deliverNotifications().then(()=>{}).catch(()=>{}));
   return Response.json({ok:true});
  }catch(error){return apiError(error)}
 }

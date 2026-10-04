@@ -4,6 +4,7 @@ import Script from 'next/script';
 import { useRouter } from 'next/navigation';
 import { getSupabase } from '@/lib/supabase';
 import { telegramSignIn } from '@/lib/telegram-client';
+import { miniAppPath } from '@/lib/telegram-links';
 
 export default function TelegramBridge() {
   const router = useRouter();
@@ -25,10 +26,10 @@ export default function TelegramBridge() {
           if (result.needsAccount && alive) setNotice('needs-account');
         }
         // start_param is navigation only. Authentication always uses server-verified initData.
-        const start = new URLSearchParams(app.initData).get('start_param');
+        const start = new URLSearchParams(app.initData).get('start_param') || new URLSearchParams(window.location.search).get('tgWebAppStartParam');
         if (start) {
-          const path = atob(start.replace(/-/g, '+').replace(/_/g, '/'));
-          if (/^\/(?:account|appointments|therapists|register|portal|chat|packages|schedule)(?:[/?]|$)/.test(path) && !path.includes('\\')) router.replace(path);
+          const path = miniAppPath(start);
+          if (path) router.replace(path);
         }
       } catch (error) { if (alive) setNotice(error instanceof Error ? error.message : 'Open Account to sign in.'); }
     }, 200);

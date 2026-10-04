@@ -12,6 +12,9 @@ import PortalCalendar from '@/components/PortalCalendar';
 import PortalSettings from '@/components/PortalSettings';
 import { dateKey } from '@/lib/calendar';
 import { motion } from 'framer-motion';
+import { useConversationActivity } from '@/lib/useConversationActivity';
+import ConversationActivity from '@/components/ConversationActivity';
+import EditableMessage from '@/components/EditableMessage';
 
 const CLINICAL_TEMPLATES = [
   {
@@ -33,7 +36,7 @@ const CLINICAL_TEMPLATES = [
 ];
 
 function TherapistPortalInner() {
-  const { t, people, loadMoreMessages, userId, ownTherapistId, conversations, activeConversation, setActiveConversation, state, messages, reply, money, date, clear, settings, updateSettings, updateAppointment } =
+  const { t, people, markAsRead, unreadConversation, userId, ownTherapistId, conversations, activeConversation, setActiveConversation, setViewedConversation, state, messages, reply, money, date, clear, settings, updateSettings, updateAppointment } =
     usePlatform();
   const searchParams = useSearchParams();
   const linkedConversation = searchParams.get('conversation');
@@ -43,37 +46,15 @@ function TherapistPortalInner() {
   const [tab, setTab] = useState<'overview' | 'chat' | 'calendar' | 'rates' | 'profile'>(linkedConversation || searchParams.get('tab') === 'chat' ? 'chat' : 'overview');
   const [showChatInfo, setShowChatInfo] = useState(false);
   const [replyText, setReplyText] = useState('');
-  const [remoteTyping, setRemoteTyping] = useState(false);
-  const [activeConvId, setActiveConvId] = useState<string | null>(null);
-  useEffect(() => { const c = conversations.find(c => c.id === activeConversation); setActiveConvId(c ? c.id : null); }, [activeConversation, conversations]);
-  useEffect(() => {
-    if (!activeConvId || !userId) return;
-    const { getSupabase } = require('@/lib/supabase');
-    const db = getSupabase();
-    if (!db) return;
-    const ch = db.channel('typing:' + activeConvId);
-    ch.on('broadcast', { event: 'typing' }, (p: { payload: { u?: string } }) => {
-      if (p.payload.u !== userId) {
-        setRemoteTyping(true);
-        clearTimeout((window as any).typingT2);
-        (window as any).typingT2 = setTimeout(() => setRemoteTyping(false), 3000);
-      }
-    }).subscribe();
-    return () => { ch.unsubscribe(); };
-  }, [activeConvId, userId]);
-
-  const notifyTyping = () => {
-    if (!activeConvId || !userId) return;
-    const { getSupabase } = require('@/lib/supabase');
-    const db = getSupabase();
-    if (db) db.channel('typing:' + activeConvId).send({ type: 'broadcast', event: 'typing', payload: { u: userId } });
-  };
   const [reset, setReset] = useState(false);
 
   // Voice recording state for therapist
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [draftAudio, setDraftAudio] = useState('');
+  const [sendError,setSendError]=useState('');
+  const activity=useConversationActivity(tab==='chat'?activeConversation:undefined,userId,recording);
+  const recordStarted=useRef(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -88,6 +69,16 @@ function TherapistPortalInner() {
   const appointments = state.appointments.filter(a => a.therapist === id);
   const receipts = state.receipts.filter(r => r.therapist === id);
   const thread = messages.filter(m => m.therapist === id && m.conversationId === activeConversation);
+  const lastMessageId=thread.at(-1)?.id;
+  useEffect(()=>{
+    const read=()=>{if(tab==='chat' && activeConversation && lastMessageId && document.visibilityState==='visible') void markAsRead(activeConversation,lastMessageId);};
+    read();document.addEventListener('visibilitychange',read);
+    return ()=>document.removeEventListener('visibilitychange',read);
+  },[tab,activeConversation,lastMessageId,markAsRead]);
+  useEffect(()=>{
+    setViewedConversation(tab==='chat'?activeConversation:'');
+    return ()=>setViewedConversation('');
+  },[tab,activeConversation,setViewedConversation]);
   const pendingAppointments = appointments.filter(a => a.status === 'pending');
   const todayBookings = appointments.filter(a => a.date === dateKey() && a.status !== 'cancelled');
 
@@ -135,8 +126,11 @@ function TherapistPortalInner() {
         if (chunks.length) {
           setDraftAudio(URL.createObjectURL(new Blob(chunks, { type: rec.mimeType })));
         }
+        setRecordSeconds(Math.max(1,Math.ceil((Date.now()-recordStarted.current)/1000)));
+        recorderRef.current=null;
         setRecording(false);
       };
+      recordStarted.current=Date.now();
       rec.start();
       setRecording(true);
       setRecordSeconds(0);
@@ -158,14 +152,19 @@ function TherapistPortalInner() {
   async function handleSendVoice() {
     if (!draftAudio || sendingRef.current) return;
     sendingRef.current = true; setSending(true);
-    if (await reply(id, undefined, draftAudio)) setDraftAudio('');
+    const result=await reply(id, undefined, draftAudio, recordSeconds);
+    setSendError(result.error||'');
+    if(result.ok) setDraftAudio('');
     sendingRef.current = false; setSending(false);
   }
 
   async function handleSendText() {
     if (!replyText.trim() || sendingRef.current) return;
     sendingRef.current = true; setSending(true);
-    if (await reply(id, replyText.trim())) setReplyText('');
+    activity.stop();
+    const result=await reply(id, replyText.trim());
+    setSendError(result.error||'');
+    if(result.ok) setReplyText('');
     sendingRef.current = false; setSending(false);
   }
 
@@ -175,7 +174,7 @@ function TherapistPortalInner() {
 
   const tabs: [typeof tab, string, string, number?][] = [
     ['overview', '📊', t('Overview', 'አጠቃላይ')],
-    ['chat', '💬', t('Live Chat Desk', 'የቀጥታ ቻት'), thread.length],
+    ['chat', '💬', t('Live Chat Desk', 'የቀጥታ ቻት'), conversations.reduce((n,c)=>n+unreadConversation(c.id),0)],
     ['calendar', '📅', t('Calendar & Bookings', 'የቀጠሮ ሰሌዳ'), pendingAppointments.length],
     ['rates', '⚙️', t('Rates & Schedule', 'ዋጋና የሥራ ሰዓት')],
     ['profile', '👤', t('Profile & Bio', 'መገለጫና ፎቶ')],
@@ -590,7 +589,7 @@ function TherapistPortalInner() {
                               {new Date(m.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </time>
                           </div>
-                          {m.text && <p className="msg-content">{m.text}</p>}
+                          {m.text && <EditableMessage message={m} mine={isMe} bodyClass="msg-content" />}
                           {m.audio && (
                             <div className="msg-audio-wrap">
                               <PrivateAudio src={m.audio} />
@@ -600,13 +599,13 @@ function TherapistPortalInner() {
                       );
                     })
                   )}
-                  <button type="button" onClick={loadMoreMessages}>Load earlier messages</button>
-                  {remoteTyping && <div style={{ padding: '8px 16px', color: 'var(--muted-text)', fontStyle: 'italic', fontSize: '12px', alignSelf: 'flex-start' }}>Typing...</div>}
                   <div ref={chatBottomRef} />
                 </div>
 
                 {/* Practitioner Composer */}
                 <div className="therapist-composer-dock">
+                  <ConversationActivity state={activity.remote} name={t('Client','ደንበኛ')} />
+                  {sendError && <p className="native-error-bar" role="alert">{sendError}</p>}
                   {recording ? (
                     <div className="recording-live-strip">
                       <span className="recording-pulse" />
@@ -619,7 +618,7 @@ function TherapistPortalInner() {
                     </div>
                   ) : draftAudio ? (
                     <div className="audio-preview-strip">
-                      <audio controls src={draftAudio} style={{ flex: 1 }} />
+                      <PrivateAudio src={draftAudio} />
                       <button type="button" onClick={() => setDraftAudio('')}>
                         {t('Discard', 'ሰርዝ')}
                       </button>
@@ -639,7 +638,7 @@ function TherapistPortalInner() {
                         rows={2}
                         aria-label={t('Reply to client', 'ለደንበኛ ምላሽ')}
                         value={replyText}
-                        onChange={e => { setReplyText(e.target.value); notifyTyping(); }}
+                        onChange={e => { setReplyText(e.target.value); activity.typing(Boolean(e.target.value.trim())); }}
                         placeholder={t('Type a clinical response or guidance… (Press Enter to send)', 'የሕክምና ምላሽ ይጻፉ… (ለመላክ Enter ይጫኑ)')}
                         onKeyDown={e => {
                           if (e.key === 'Enter' && !e.shiftKey) {

@@ -65,6 +65,7 @@ export type Message = {
   audio?: string;
   durationSeconds?: number;
   at: string;
+  editedAt?: string | null;
 };
 
 export type Receipt = {
@@ -95,10 +96,14 @@ type API = {
   ownTherapistId: number | null;
   conversations: Conversation[];
   activeConversation: string;
+  viewedConversation: string;
+  setViewedConversation: (id:string)=>void;
   setActiveConversation: (id: string) => void;
   ensureConversation: (id: number) => Promise<string>;
   loadMoreMessages: () => void;
-  markAsRead: (therapistId: number) => Promise<void>;
+  markAsRead: (conversationId: string, lastMessageId: string) => Promise<void>;
+  messagesReady: boolean;
+  unreadConversation: (id:string)=>number;
   lang: 'en' | 'am';
   setLang: (lang: 'en' | 'am') => void;
   theme: 'white' | 'dark' | 'colorful';
@@ -107,17 +112,20 @@ type API = {
   date: (value: string | Date, options?: Intl.DateTimeFormatOptions) => string;
   money: (n: number) => string;
   people: Therapist[];
+  directoryReady: boolean;
+  directoryError: string;
+  refreshDirectory: () => Promise<void>;
   state: State;
   ready: boolean;
   error: string;
   messages: Message[];
+  editMessage: (id:string,text:string)=>Promise<{ok:boolean,error?:string}>;
   settings: (id: number) => Settings;
   balance: (id: number) => Balance;
   buy: (id: number, bundle: string) => boolean;
   send: (id: number, type: 'text' | 'voice', content: string, durationSeconds?: number) => Promise<{ok: boolean, error?: string}>;
-  reply: (id: number, text?: string, audio?: string) => Promise<boolean>;
+  reply: (id: number, text?: string, audio?: string, durationSeconds?: number) => Promise<{ok:boolean,error?:string}>;
   updateSettings: (id: number, s: Settings) => Promise<boolean>;
-  book: (a: Omit<Appointment, 'id' | 'status'>) => boolean;
   updateAppointment: (id: string, patch: Partial<Appointment>) => void;
   refreshAppointments: () => Promise<void>;
   save: (id: number) => void;
@@ -138,6 +146,7 @@ export function Platform({ children }: { children: ReactNode }) {
   const [state, setState] = useState<State>(initial);
   const stateRef = useRef(state);
   const [ready, setReady] = useState(false);
+  const [viewedConversation,setViewedConversation]=useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -232,7 +241,11 @@ export function Platform({ children }: { children: ReactNode }) {
   const api: API = {
     wallet: finances.data, refreshWallet: finances.refresh,
     loadMoreMessages: cloud.loadMoreMessages,
+    editMessage: cloud.editMessage,
     markAsRead: cloud.markAsRead,
+    messagesReady: cloud.messagesReady,
+    unreadConversation: cloud.unreadConversation,
+    viewedConversation,setViewedConversation,
     userId: cloud.userId, ownTherapistId: cloud.ownTherapistId, conversations: cloud.conversations,
     activeConversation: cloud.activeConversation, setActiveConversation: cloud.setActiveConversation, ensureConversation: cloud.ensureConversation,
     lang,
@@ -254,14 +267,16 @@ export function Platform({ children }: { children: ReactNode }) {
     settings,
     balance,
     people,
+    directoryReady: cloud.directoryReady,
+    directoryError: cloud.directoryError,
+    refreshDirectory: cloud.refreshPeople,
     date: (v, opts) =>
       new Date(v).toLocaleDateString(lang === 'am' ? 'am-ET' : 'en-GB', opts || { day: 'numeric', month: 'short', year: 'numeric' }),
     money: n => `${n.toLocaleString(lang === 'am' ? 'am-ET' : 'en-GB')} ${t('ETB', 'ብር')}`,
     buy: () => { window.location.assign('/packages'); return false; },
     send: async (...args) => { const result=await cloud.send(...args); if(result.ok) await finances.refresh(); return result; },
-    reply: async (id, text, audio) => (await cloud.send(id, audio ? 'voice' : 'text', audio || text || '')).ok,
+    reply: async (id, text, audio, durationSeconds) => cloud.send(id, audio ? 'voice' : 'text', audio || text || '', durationSeconds),
     updateSettings: cloud.updateSettings,
-    book: () => { setError('Online booking is not enabled yet. Please contact the practice.'); return false; },
     updateAppointment: (id, patch) => { void bookings.update(id, patch); },
     refreshAppointments: bookings.refresh,
     save: id => {

@@ -1,3 +1,5 @@
+import {after} from 'next/server';
+import {deliverNotifications} from '@/lib/notifications';
 import { authorize } from '@/lib/server-auth';
 import { serviceDb, apiError } from '@/lib/server-services';
 import { birrCents, PACKAGE_PRINCIPAL, serviceFee } from '@/lib/payment-policy';
@@ -38,9 +40,8 @@ export async function POST(request: Request) {
    const principal=input.kind==='wallet'?birrCents(input.amount):PACKAGE_PRINCIPAL[input.kind as keyof typeof PACKAGE_PRINCIPAL];
    const {error}=await db.from('payment_requests').insert({id,user_id:user.id,kind:input.kind,principal_cents:principal,fee_cents:serviceFee(principal),method:input.method,reference:`UPLOAD-${id}`,proof_path:path,proof_hash:hash});
    if(error){await db.storage.from(PROOF_BUCKET).remove([path]);throw new Error(error.code==='23505'?'This screenshot has already been submitted. Check your wallet for its status.':'Could not save this payment. Please try again.');}
-   const { notifyAdmins } = await import('@/lib/telegram-admin');
-   void notifyAdmins("?? <b>New Package Payment</b>\n\nPackage: \nAmount:  ETB\nMethod: ");
   } else throw new Error('Unknown wallet action.');
+  after(()=>deliverNotifications().then(()=>{}).catch(()=>{}));
   return Response.json({ok:true},{headers:{'Cache-Control':'no-store'}});
  }catch(error){return apiError(error)}
 }

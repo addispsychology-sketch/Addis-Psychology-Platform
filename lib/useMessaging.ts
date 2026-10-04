@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getSupabase } from './supabase';
+import { getSupabase, getPublicSupabase } from './supabase';
 import { uploadVoice } from './voice';
 import type { Therapist } from './data';
 import type { Message, Registration, Settings } from '@/components/Platform';
@@ -10,19 +10,32 @@ export function useMessaging() {
   const [userId, setUserId] = useState<string | null>(null);
   const identity = useRef<string | null>(null);
   const [people, setPeople] = useState<Therapist[]>([]);
+  const [directoryReady, setDirectoryReady] = useState(false);
+  const [directoryError, setDirectoryError] = useState('');
   const [ownTherapistId, setOwnTherapistId] = useState<number | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [messagesReady, setMessagesReady] = useState(false);
+  const [reads,setReads]=useState<Record<string,string>>({});
   const [cloudSettings, setCloudSettings] = useState<Record<number, Settings>>({});
   const [cloudError, setCloudError] = useState('');
   const [activeConversation, setActiveConversation] = useState('');
   const [historyLimit, setHistoryLimit] = useState(100);
   const refreshPeople = useCallback(async () => {
     const db = getSupabase();
-    if (!db) return;
-    const { data, error } = await db.from('practitioners').select('*');
+    const publicDb = getPublicSupabase();
+    if (!db || !publicDb) { setDirectoryError('The directory is unavailable. Please try again shortly.'); setDirectoryReady(true); return; }
+    const [directory, own] = await Promise.all([
+      publicDb.from('practitioners').select('id,profile,settings,approved,last_seen_at').eq('approved', true).order('id'),
+      userId ? db.from('practitioners').select('id,profile,settings,approved,last_seen_at,user_id').eq('user_id', userId).maybeSingle() : Promise.resolve({data:null,error:null})
+    ]);
     if (identity.current !== userId) return;
-    if (error) { setCloudError(error.message); return; }
+    setDirectoryReady(true);
+    if (directory.error) { setDirectoryError('Unable to load therapists. Please check your connection and retry.'); return; }
+    setDirectoryError('');
+    if (own.error) setCloudError(own.error.message);
+    const ownPractice = own.data;
+    const data = [...(directory.data || []), ...(ownPractice && !directory.data?.some(p => p.id === ownPractice.id) ? [ownPractice] : [])];
     setPeople((data || []).map(p => ({
       ...p.profile,
       priceOnline: p.settings?.online != null && Number(p.settings.online) > 0 ? Number(p.settings.online) : p.profile?.priceOnline,
@@ -30,15 +43,15 @@ export function useMessaging() {
       badge: p.approved ? undefined : 'Pending approval',
       id: p.id
     })));
-    setOwnTherapistId(data?.find(p => p.user_id === userId)?.id ?? null);
-    setCloudSettings(Object.fromEntries((data || []).filter(p => p.settings && Object.keys(p.settings).length).map(p => [p.id, p.settings])));
+    if (!own.error) setOwnTherapistId(own.data?.id ?? null);
+    setCloudSettings(Object.fromEntries((data || []).filter(p => p.settings && Object.keys(p.settings).length).map(p => [p.id, {...p.settings, lastSeenAt:p.last_seen_at}])));
   }, [userId]);
   useEffect(() => {
     const db = getSupabase();
     if (!db) return;
     const { data } = db.auth.onAuthStateChange((_event, session) => {
       if (identity.current !== (session?.user.id ?? null)) {
-        setMessages([]); setConversations([]); setActiveConversation(''); setPeople([]); setOwnTherapistId(null); setCloudSettings({}); setHistoryLimit(100);
+        setMessages([]); setMessagesReady(false); setReads({}); setConversations([]); setActiveConversation(''); setPeople(current => current.filter(p => !p.badge)); setOwnTherapistId(null); setCloudSettings({}); setHistoryLimit(100);
       }
       identity.current = session?.user.id ?? null;
       setUserId(session?.user.id ?? null);
@@ -50,16 +63,28 @@ export function useMessaging() {
   useEffect(() => {
     const initial = setTimeout(() => void refreshPeople(), 0);
     const refresh = () => { if (document.visibilityState === 'visible') void refreshPeople(); };
-    const timer = setInterval(refresh, 30000);
+    const timer = setInterval(refresh, userId?120000:30000);
+    const db = getSupabase();
+    const directory = db && userId?db.channel('directory:'+userId,{config:{private:true}}).on('postgres_changes', {event:'UPDATE',schema:'public',table:'practitioners'}, () => void refreshPeople()).subscribe():null;
     window.addEventListener('focus', refresh);
-    return () => { clearTimeout(initial); clearInterval(timer); window.removeEventListener('focus', refresh); };
-  }, [refreshPeople]);
+    return () => { clearTimeout(initial); clearInterval(timer); window.removeEventListener('focus', refresh); if(db && directory) void db.removeChannel(directory); };
+  }, [refreshPeople,userId]);
+  useEffect(() => {
+    const db=getSupabase();
+    if(!db || !userId) return;
+    const touch=()=>{ if(document.visibilityState==='visible') void db.rpc('touch_activity').then(({error})=>{ if(error) console.warn('Presence update unavailable'); }); };
+    touch();
+    const timer=setInterval(touch,45000);
+    document.addEventListener('visibilitychange',touch);
+    return ()=>{clearInterval(timer);document.removeEventListener('visibilitychange',touch);};
+  },[userId]);
   useEffect(() => {
     const db = getSupabase();
     if (!db || !userId) return;
     let alive = true;
     async function refresh() {
-      const { data: threads, error: ce } = await db!.from('conversations').select('*');
+      const [conversationRows,readRows]=await Promise.all([db!.from('conversations').select('*'),db!.from('conversation_reads').select('conversation_id,read_at')]);
+      const {data:threads,error:ce}=conversationRows;
       const rows = [];
       let me = null;
       for (let offset = 0; offset < historyLimit; offset += 100) {
@@ -69,14 +94,16 @@ export function useMessaging() {
         if (page.data.length < 100) break;
       }
       if (!alive || identity.current !== userId) return;
-      if (ce || me) { setCloudError((ce || me)!.message); return; }
+      if (ce || me || readRows.error) { setCloudError((ce || me || readRows.error)!.message); return; }
+      setReads(Object.fromEntries((readRows.data||[]).map(r=>[r.conversation_id,r.read_at])));
       setConversations(threads || []);
       setMessages((rows || []).reverse().flatMap(m => {
         const c = threads?.find(c => c.id === m.conversation_id);
-        return c ? [{ id: m.id, conversationId: c.id, therapist: c.therapist_id, from: m.sender_id === c.client_id ? 'client' as const : 'therapist' as const, text: m.text || undefined, audio: m.audio_url || undefined, durationSeconds: m.duration_seconds, at: m.created_at }] : [];
+        return c ? [{ id: m.id, conversationId: c.id, therapist: c.therapist_id, from: m.sender_id === c.client_id ? 'client' as const : 'therapist' as const, text: m.text || undefined, audio: m.audio_url || undefined, durationSeconds: m.duration_seconds, at: m.created_at, editedAt:m.edited_at }] : [];
       }));
+      setMessagesReady(true);
     }
-    const channel = db.channel(`messages:${userId}`, { config: { private: true } }).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => void refresh()).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, () => void refresh()).subscribe(status => { if (status === 'SUBSCRIBED') void refresh(); });
+    const channel = db.channel(`messages:${userId}`, { config: { private: true } }).on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => void refresh()).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, () => void refresh()).subscribe(status => { if (status === 'SUBSCRIBED') void refresh(); });
     void refresh();
     const timer = setInterval(() => { if (document.visibilityState === 'visible') void refresh(); }, 60000);
     return () => { alive = false; clearInterval(timer); void db.removeChannel(channel); };
@@ -109,11 +136,24 @@ export function useMessaging() {
         if (!content.startsWith('blob:')) throw new Error('Invalid recording.');
         audioUrl = await uploadVoice(conversationId, await (await fetch(content)).blob());
       }
-      const { error } = await db.from('messages').insert({ conversation_id: conversationId, sender_id: userId, text: type === 'text' ? content.trim() : null, audio_url: audioUrl || null, duration_seconds: durationSeconds ? Math.max(1, Math.ceil(durationSeconds)) : null });
+      const { data, error } = await db.from('messages').insert({ conversation_id: conversationId, sender_id: userId, text: type === 'text' ? content.trim() : null, audio_url: audioUrl || null, duration_seconds: durationSeconds ? Math.max(1, Math.ceil(durationSeconds)) : null }).select().single();
       if (error) throw new Error(error.message);
+      const sent: Message={id:data.id,conversationId,therapist,from:ownTherapistId===therapist?'therapist':'client',text:data.text||undefined,audio:data.audio_url||undefined,durationSeconds:data.duration_seconds,at:data.created_at};
+      setMessages(current=>[...current.filter(m=>m.id!==sent.id),sent].sort((a,b)=>a.at.localeCompare(b.at)));
       setCloudError('');
       return { ok: true };
     } catch (error) { const msg = error instanceof Error ? error.message : 'Message failed. Please retry.'; setCloudError(msg); return { ok: false, error: msg }; }
+  }
+  async function editMessage(id:string,text:string) {
+    try {
+      const db=getSupabase(),trimmed=text.trim();
+      if(!db || !userId) throw new Error('Please sign in first.');
+      if(!trimmed || trimmed.length>2000) throw new Error('Use between 1 and 2,000 characters.');
+      const {data,error}=await db.from('messages').update({text:trimmed}).eq('id',id).eq('sender_id',userId).select('id,text,edited_at').single();
+      if(error || !data) throw new Error('Could not save your edit. Please try again.');
+      setMessages(current=>current.map(m=>m.id===data.id?{...m,text:data.text,editedAt:data.edited_at}:m));
+      return {ok:true};
+    }catch(error){return {ok:false,error:error instanceof Error?error.message:'Could not save your edit.'};}
   }
   async function register(r: Registration) {
     if (!userId) throw new Error('Sign in from Account before registering.');
@@ -137,8 +177,17 @@ export function useMessaging() {
       await refreshPeople();
       return true;
   }
-  async function markAsRead(therapistId: number) { const c = conversations.find(c => c.therapist_id === therapistId); if (!c || !userId) return; const db = getSupabase(); if (db) await db.from('conversation_reads').upsert({ conversation_id: c.id, user_id: userId, read_at: new Date().toISOString() }); window.dispatchEvent(new Event('messages-read')); }
-  return { userId, people, ownTherapistId, conversations, messages, cloudSettings, cloudError, activeConversation, setActiveConversation, ensureConversation, send, register, updateSettings, loadMoreMessages: () => setHistoryLimit(n => n + 100), markAsRead };
+  const markAsRead=useCallback(async (conversationId:string,lastMessageId:string)=>{
+    const db=getSupabase();if(!db || !userId) return;
+    const {error}=await db.rpc('mark_conversation_read',{conversation:conversationId,last_message:lastMessageId});
+    if(!error) {
+      const result=await db.from('conversation_reads').select('read_at').eq('conversation_id',conversationId).eq('user_id',userId).single();
+      if(result.data) setReads(current=>({...current,[conversationId]:result.data.read_at}));
+      window.dispatchEvent(new Event('messages-read'));
+    }
+  },[userId]);
+  const unreadConversation=(id:string)=>messages.filter(m=>m.conversationId===id && m.from===(ownTherapistId?'client':'therapist') && Date.parse(m.at)>Date.parse(reads[id]||'1970-01-01')).length;
+  return { userId, people, directoryReady, directoryError, refreshPeople, ownTherapistId, conversations, messages, messagesReady, unreadConversation, cloudSettings, cloudError, activeConversation, setActiveConversation, ensureConversation, send, editMessage, register, updateSettings, loadMoreMessages: () => setHistoryLimit(n => n + 100), markAsRead };
 }
 
 
