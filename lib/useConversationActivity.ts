@@ -17,7 +17,7 @@ export function useConversationActivity(conversationId: string | undefined, user
     const changed=local.current!==state;
     local.current=state;
     if (!subscribed.current || !userId) return;
-    if (!changed && state === 'typing' && Date.now() - lastSent.current < 1000) return;
+    if (!changed && Date.now() - lastSent.current < 2500) return;
     lastSent.current = Date.now();
     void channel.current?.send({type:'broadcast',event:'activity',payload:{user:userId,state}});
   }, [userId]);
@@ -30,7 +30,10 @@ export function useConversationActivity(conversationId: string | undefined, user
     const topicName=`typing:${conversationId}`;
     let topic:RealtimeChannel | null=null;
     const publish=()=>{
-      if(!disposed && subscribed.current) void topic?.send({type:'broadcast',event:'activity',payload:{user:userId,state:local.current}});
+      if(!disposed && subscribed.current && document.visibilityState==='visible' && Date.now()-lastSent.current>=2500) {
+        lastSent.current=Date.now();
+        void topic?.send({type:'broadcast',event:'activity',payload:{user:userId,state:local.current}});
+      }
     };
     const join=async()=>{
       await db.realtime.setAuth();
@@ -42,7 +45,7 @@ export function useConversationActivity(conversationId: string | undefined, user
         if(disposed || payload?.user===userId || !['typing','recording','idle'].includes(payload?.state)) return;
         setReceived({conversation:conversationId,state:payload.state});
         clearTimeout(timeout);
-        timeout=setTimeout(()=>setReceived({conversation:conversationId,state:'idle'}),4000);
+        timeout=setTimeout(()=>setReceived({conversation:conversationId,state:'idle'}),7000);
       }).on('broadcast',{event:'activity-request'},({payload})=>{
         if(payload?.user!==userId) publish();
       });
@@ -58,7 +61,7 @@ export function useConversationActivity(conversationId: string | undefined, user
     };
     void join().catch(()=>{});
     // Only active composition emits a pulse; no HTTP requests or database writes.
-    const pulse=setInterval(()=>{if(local.current!=='idle') publish();},1500);
+    const pulse=setInterval(()=>{if(local.current!=='idle') publish();},3000);
     return ()=>{
       disposed=true;
       if(subscribed.current) void topic?.send({type:'broadcast',event:'activity',payload:{user:userId,state:'idle'}});

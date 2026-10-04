@@ -37,7 +37,9 @@ export async function telegramSession(identity: { id: number; name: string }, li
   if (lookupError) throw new Error('Telegram sign-in is awaiting database setup.');
   if (linkUserId) {
     if (mapping && mapping.user_id !== linkUserId) throw new Error('This Telegram account is already linked to another Addis account. Sign in to that account instead.');
-    const { data: own } = await db.from('telegram_accounts').select('telegram_id').eq('user_id', linkUserId).maybeSingle();
+    if (mapping?.user_id === linkUserId) return { linked: true };
+    const { data: own, error: ownError } = await db.from('telegram_accounts').select('telegram_id').eq('user_id', linkUserId).maybeSingle();
+    if (ownError) throw new Error('Telegram sign-in is temporarily unavailable.');
     if (own && Number(own.telegram_id) !== identity.id) throw new Error('This Addis account already has a Telegram account connected.');
     const { error } = await db.from('telegram_accounts').upsert({ user_id: linkUserId, telegram_id: identity.id }, { onConflict: 'user_id' });
     if (error) throw new Error('This Telegram account could not be linked.');
@@ -48,10 +50,18 @@ export async function telegramSession(identity: { id: number; name: string }, li
     if (!create) return { needsAccount: true };
     const email = `telegram.${identity.id}@telegram.addis.invalid`;
     const created = await db.auth.admin.createUser({ email, email_confirm: true, app_metadata: { telegram_id: identity.id }, user_metadata: { full_name: identity.name } });
-    if (created.error || !created.data.user) throw new Error('Unable to create your Telegram account. If you already have an Addis account, sign in and connect Telegram from Account.');
-    userId = created.data.user.id;
-    const { error } = await db.from('telegram_accounts').insert({ user_id: userId, telegram_id: identity.id });
-    if (error) { await db.auth.admin.deleteUser(userId); throw new Error('Please reopen Telegram and try again.'); }
+    if (created.data.user) userId = created.data.user.id;
+    else {
+      // Recover a concurrent first sign-in or an interrupted mapping insert. Only
+      // server-owned metadata on our synthetic account can prove this association.
+      const { data: recovered, error: recoveryError } = await db.auth.admin.generateLink({ type: 'magiclink', email });
+      if (recoveryError || recovered.user?.app_metadata?.telegram_id !== identity.id) throw new Error('Unable to create your Telegram account. If you already have an Addis account, sign in and connect Telegram from Account.');
+      userId = recovered.user.id;
+    }
+    const { error } = await db.from('telegram_accounts').upsert({ user_id: userId, telegram_id: identity.id }, { onConflict: 'telegram_id', ignoreDuplicates: true });
+    if (error) throw new Error('Please reopen Telegram and try again.');
+    const { data: confirmed, error: confirmError } = await db.from('telegram_accounts').select('user_id').eq('telegram_id', identity.id).single();
+    if (confirmError || confirmed?.user_id !== userId) throw new Error('Please reopen Telegram and try again.');
   }
   const { data: existing } = await db.auth.admin.getUserById(userId);
   if (!existing.user?.email) throw new Error('Please use your phone and password to sign in.');

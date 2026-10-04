@@ -31,11 +31,20 @@ export default function AccountPanel() {
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [connected, setConnected] = useState<number | null>(null);
+  const [telegramUrl, setTelegramUrl] = useState('');
   const [prefs, setPrefs] = useState({ telegram_notifications: true, email_notifications: true });
   const [profileReady, setProfileReady] = useState(false);
   const [revision, setRevision] = useState(0);
   const [cooldown, setCooldown] = useState(0);
   const bot = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME;
+
+  useEffect(() => {
+    const linked = () => setRevision(n => n + 1);
+    const browserLogin = (event: Event) => setTelegramUrl((event as CustomEvent<{ url: string } | null>).detail?.url || '');
+    window.addEventListener('telegram-linked', linked);
+    window.addEventListener('telegram-browser-login', browserLogin);
+    return () => { window.removeEventListener('telegram-linked', linked); window.removeEventListener('telegram-browser-login', browserLogin); };
+  }, []);
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -492,6 +501,7 @@ export default function AccountPanel() {
           </>
         )}
 
+        {telegramUrl && <p className="account-notice" role="status">In Telegram, press Start and open “Approve website sign-in”, then return here. <a href={telegramUrl} target="_blank" rel="noopener noreferrer">Open Telegram →</a></p>}
         {notice && <p className="account-notice" role="status">{notice}</p>}
       </div>
     </section>

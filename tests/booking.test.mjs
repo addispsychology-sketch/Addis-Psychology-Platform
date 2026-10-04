@@ -6,12 +6,12 @@ import ts from 'typescript';
 function moduleAt(path, dependencies={}) {
   const source=readFileSync(new URL('../'+path,import.meta.url),'utf8');
   const output=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,target:ts.ScriptTarget.ES2022}}).outputText;
-  const module={exports:{}};
+  const loaded={exports:{}};
   new Function('require','module','exports',output)(name=>{
     if(name in dependencies)return dependencies[name];
     throw new Error('Unexpected dependency: '+name);
-  },module,module.exports);
-  return module.exports;
+  },loaded,loaded.exports);
+  return loaded.exports;
 }
 const calendar=moduleAt('lib/calendar.ts');
 const booking=moduleAt('lib/booking-validation.ts');

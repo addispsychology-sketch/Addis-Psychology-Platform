@@ -77,6 +77,11 @@ export async function handleBotUpdate(update: BotUpdate) {
     (isAdmin ? '\n\n<b>Administration</b> · /admin' : '');
 
   if ((command === '/start' || command === '/help') && !callback) {
+    const login = text.match(/^\/start(?:@\w+)? login_([a-f0-9-]{36})$/i)?.[1];
+    if (login) {
+      await say(chat, 'Sign in to Addis Psychology\n\nOpen the button below to approve the sign-in you started on our website. Only approve it if you started this request. Then return to your browser.', { inline_keyboard: [[privateAppButton('Approve website sign-in', '/account?telegramLogin=' + login)]] });
+      return;
+    }
     await say(chat, welcomeText, menu(), true);
     return;
   }

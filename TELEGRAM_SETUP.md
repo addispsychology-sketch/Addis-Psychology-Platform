@@ -5,7 +5,7 @@
 - Telegram publishing administrator configured for the owner-supplied ID. Use `/admin` to prepare previews. Publishing requires a channel, which the owner has not created yet.
 - SMTP authentication verified from production; the owner still needs to test receiving a real signup email.
 - GitHub notification schedule enabled and a verification run requested. Scheduled Actions may run late; reminders are not guaranteed to arrive at an exact minute.
-- Browser Telegram login still needs the BotFather Login client ID and allowed website origin. Telegram Mini App login uses signed Telegram data independently.
+- Browser Telegram login now uses a short-lived approval through this bot's signed Mini App. It does not require a separate Login Widget client ID. Press Start, open Approve website sign-in, then return to the original browser.
 - Main Mini App setup in BotFather is still needed for channel promotion links. Set its URL to the public website above.
 - Website admin console stays restricted until server-enforced admin roles are implemented. Telegram publishing access is separate.
 
@@ -18,7 +18,7 @@ The app uses the same private Supabase account on the website and inside Telegra
 1. In **@BotFather**, revoke the bot token previously shared in chat. Save its replacement in the private `.env.integration.local` file beside `TELEGRAM_BOT_TOKEN=`. Never paste it into GitHub or chat.
 2. Sign into **addispsychology@gmail.com**, enable Google 2-Step Verification, and open https://myaccount.google.com/apppasswords. Create an app password named “Addis website”. Save it beside `SMTP_PASSWORD=` in that same private file. This is not your normal Gmail password.
 3. After the assistant publishes the site, open BotFather → your bot → **Mini Apps / Main Mini App** and use the live website URL supplied by the assistant. This makes promotion buttons open the correct Mini App.
-4. In BotFather → **Login Widget**, add the live website origin under Allowed URLs. Share the displayed **Client ID** with the assistant; it is public. Do not share the client secret. The website verifies signed ID tokens and does not require that secret.
+4. Website sign-in uses the existing bot: Continue with Telegram opens the bot, where you press Start and approve your own sign-in in the Mini App. Return to your browser afterward. Each request expires after five minutes and can be used only once.
 5. Open **@addispsychology_bot**, press **Start**, and send `/id`. Give the assistant your numeric ID and your official announcements channel’s @username. Add the bot to that channel with permission to post. Administrator access is only granted to IDs you explicitly identify.
 
 If a step is confusing, stop at that screen and tell the assistant what you see. You do not need to run the technical commands below.

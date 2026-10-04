@@ -9,6 +9,7 @@ export default function ClientNav() {
   const { userId, ownTherapistId, t, messages } = usePlatform();
   const path = usePathname();
   const [unread, setUnread] = useState(0);
+  const messageRevision = messages.length + ':' + (messages.at(-1)?.id || '');
   useEffect(() => {
     if (!userId || ownTherapistId || path.startsWith('/admin') || path.startsWith('/portal')) return;
     let alive = true;
@@ -21,9 +22,9 @@ export default function ClientNav() {
     };
     void refresh();
     window.addEventListener('messages-read',refresh);
-    const timer = setInterval(() => { if (document.visibilityState === 'visible') void refresh(); }, 120000);
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') void refresh(); }, 300000);
     return () => { alive = false; clearInterval(timer); window.removeEventListener('messages-read',refresh); };
-  }, [userId, ownTherapistId, path, messages]);
+  }, [userId, ownTherapistId, path, messageRevision]);
   if (ownTherapistId || path.startsWith('/admin') || path.startsWith('/portal')) return null;
   const items = [
     { href: '/therapists', label: t('Home', 'ዋና'), icon: Home },

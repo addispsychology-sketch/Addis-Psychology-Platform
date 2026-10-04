@@ -12,3 +12,5 @@ scripts/verify-broadcast.mjs
 scripts/repair-channel-buttons.mjs
 public/voice-verification.ogg
 scripts/start-booking-dev.mjs
+scripts/verify-usage-auth.mjs
+scripts/move-profile-photos.mjs

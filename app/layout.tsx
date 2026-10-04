@@ -5,6 +5,7 @@ import LoadingScreen from "@/components/LoadingScreen";
 import OnlineTherapistPopup from "@/components/OnlineTherapistPopup";
 import TelegramBridge from "@/components/TelegramBridge";
 import MessageToast from "@/components/MessageToast";
+import Script from 'next/script';
 
 export const metadata: Metadata = {
   title: "Addis Psychology Platform",
@@ -31,6 +32,7 @@ export default function RootLayout({
         <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Ethiopic:wght@400;500;600;700;800;900&family=Archivo+Black&family=Work+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
       </head>
       <body className="rawblock min-h-screen">
+        <Script src="https://telegram.org/js/telegram-web-app.js" strategy="beforeInteractive" />
         <Platform>
           <TelegramBridge />
           <LoadingScreen />

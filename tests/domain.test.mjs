@@ -75,7 +75,10 @@ test('Telegram authentication rejects forgery, stale data, duplicate keys, and m
  params.set('hash', createHmac('sha256', createHmac('sha256', 'WebAppData').update(token).digest()).update(check).digest('hex'));
  assert.deepEqual(verifyMiniApp(params.toString(), token, now), { id: 123456, name: 'Test' });
  assert.throws(() => verifyMiniApp(params.toString(), 'wrong-token', now));
- assert.throws(() => verifyMiniApp(params.toString(), token, now + 301000));
+ assert.deepEqual(verifyMiniApp(params.toString(), token, now + 301000), { id: 123456, name: 'Test' });
+ assert.throws(() => verifyMiniApp(params.toString(), token, now + 3601000));
+ assert.deepEqual(verifyMiniApp(params.toString(), token, now + 7200000, 86400), { id: 123456, name: 'Test' });
+ assert.throws(() => verifyMiniApp(params.toString(), token, now + 86401000, 86400));
  assert.throws(() => verifyMiniApp(params.toString(), token, now - 31000));
  assert.throws(() => verifyMiniApp(params.toString() + '&user={}', token, now));
  params.set('user', JSON.stringify({ id: 999, first_name: 'Forged' }));
