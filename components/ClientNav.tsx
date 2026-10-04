@@ -4,19 +4,25 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Home, MessageCircle, CalendarDays, Package, Wallet } from 'lucide-react';
 import { usePlatform } from './Platform';
-import { authenticatedFetch } from '@/lib/supabase';
+import { getSupabase } from '@/lib/supabase';
 export default function ClientNav() {
   const { userId, ownTherapistId, t } = usePlatform();
   const path = usePathname();
   const [unread, setUnread] = useState(0);
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || ownTherapistId || path.startsWith('/admin') || path.startsWith('/portal')) return;
     let alive = true;
-    const refresh = () => authenticatedFetch('/api/inbox').then(r => { if (alive && typeof r.unread === 'number') setUnread(r.unread); }).catch(() => {});
+    let loading = false;
+    const refresh = async () => {
+      if (loading) return;
+      loading = true;
+      try { const result = await getSupabase()?.rpc('unread_message_count'); if (alive && result && !result.error) setUnread(Number(result.data) || 0); }
+      finally { loading = false; }
+    };
     void refresh();
-    const timer = setInterval(refresh, 15000);
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') void refresh(); }, 120000);
     return () => { alive = false; clearInterval(timer); };
-  }, [userId, path]);
+  }, [userId, ownTherapistId, path]);
   if (ownTherapistId || path.startsWith('/admin') || path.startsWith('/portal')) return null;
   const items = [
     { href: '/therapists', label: t('Home', 'ዋና'), icon: Home },
@@ -29,3 +35,4 @@ export default function ClientNav() {
     <span className="dock-icon"><Icon size={21} />{href === '/chat' && userId && unread > 0 && <span className="unread-badge" aria-label={`${unread} unread messages`}>{unread > 99 ? '99+' : unread}</span>}</span><span>{label}</span>
   </Link>)}</nav>;
 }
+

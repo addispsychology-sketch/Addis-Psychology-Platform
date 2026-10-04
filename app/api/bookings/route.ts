@@ -21,6 +21,8 @@ export async function POST(request: Request) {
     const { data, error: insertError } = await db.from('appointments').insert({ client_id: user.id, therapist_id: p.id, starts_at: input.starts_at, medium: input.medium, client_name: input.name, phone: input.phone, language: input.language, consent_at: new Date().toISOString(), price }).select('id').single();
     if (insertError?.code === '23505') return Response.json({ error: 'That time has just been booked. Please choose another.' }, { status: 409 });
     if (insertError) throw new Error('Your appointment could not be saved. Please try again.');
+    const { notifyAdmins } = await import('@/lib/telegram-admin');
+    void notifyAdmins("?? <b>New Booking Request</b>\n\nClient: \nPhone: \nMedium: \nStarts at: ");
     return Response.json({ id: data.id }, { status: 201 });
   } catch (error) { return apiError(error); }
 }
@@ -44,3 +46,4 @@ export async function PATCH(request: Request) {
     return Response.json({ ok: true });
   } catch (error) { return apiError(error); }
 }
+

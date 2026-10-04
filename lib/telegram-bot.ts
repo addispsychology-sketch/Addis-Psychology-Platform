@@ -9,7 +9,7 @@ export type BotUpdate = { update_id: number; message?: BotMessage; callback_quer
 type Draft = { id: string; stage: 'content' | 'ready' | 'publishing'; therapist?: number; button: string; caption?: string; media?: string; mediaType?: 'photo' | 'video' };
 
 const adminIds = () => (process.env.TELEGRAM_ADMIN_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
-const say = (chat: number, text: string, reply_markup?: unknown) => telegram('sendMessage', { chat_id: chat, text, ...(reply_markup ? { reply_markup } : {}) });
+const say = (chat: number, text: string, reply_markup?: unknown, html = false) => telegram('sendMessage', { chat_id: chat, text, ...(html ? { parse_mode: 'HTML' } : {}), ...(reply_markup ? { reply_markup } : {}) });
 
 /**
  * Clean, balanced 2-row menu without cluttered vertical buttons
@@ -24,7 +24,7 @@ const menu = () => ({
       { text: '📅 Bookings', web_app: { url: siteUrl('/appointments') } },
     ],
     [
-      { text: '✨ Packages', web_app: { url: siteUrl('/packages') } },
+      { text: 'Find a psychologist', web_app: { url: siteUrl('/therapists') } },
       { text: '👤 My Account', web_app: { url: siteUrl('/account') } },
     ],
   ],
@@ -62,17 +62,20 @@ export async function handleBotUpdate(update: BotUpdate) {
   const isAdmin = adminIds().includes(String(actor));
 
   const welcomeText =
-    `✨ Addis Psychology — ድጋፍ። በእርስዎ ምርጫ።\n\n` +
-    `A dignified, confidential space for mental wellness in Addis Ababa.\n\n` +
-    `• Private 1-on-1 text & voice messaging\n` +
-    `• Licensed clinical psychologists & therapists\n` +
-    `• Transparent Ethiopian Birr pricing & prepaid wallet\n` +
-    `• Telebirr (0990171738) & CBE verified payments\n\n` +
-    `Tap "Open Addis Platform" below to get started, or select a section:` +
-    (isAdmin ? '\n\n🛡️ Admin tools: /admin' : '');
+    '<b>ADDIS PSYCHOLOGY</b>\n' +
+    '<b>ድጋፍ። በእርስዎ ምርጫ።</b>\n\n' +
+    '<i>Professional support. Space to be heard.</i>\n\n' +
+    'A respectful, confidential space to connect with mental health professionals in Addis Ababa.\n\n' +
+    '<b>Care that fits your life</b>\n' +
+    '• Private, one-to-one text and voice conversations\n' +
+    '• Psychologist profiles, specialties and languages\n' +
+    '• Online and in-person appointment requests\n' +
+    '• Your conversations and bookings in one place\n\n' +
+    'Take the next step at your own pace. Choose an option below.' +
+    (isAdmin ? '\n\n<b>Administration</b> · /admin' : '');
 
   if ((command === '/start' || command === '/help') && !callback) {
-    await say(chat, welcomeText, menu());
+    await say(chat, welcomeText, menu(), true);
     return;
   }
   if (command === '/stop' && account && !callback) {
@@ -138,5 +141,5 @@ export async function handleBotUpdate(update: BotUpdate) {
     }
   }
   if (callback) return;
-  await say(chat, welcomeText, menu());
+  await say(chat, welcomeText, menu(), true);
 }

@@ -11,5 +11,9 @@ export function birrCents(value: unknown) {
  return cents;
 }
 export const serviceFee = (cents: number) => Math.ceil(cents * 5 / 100);
+export function refundableCents(lot: { principal_cents: number; texts: number; voice_seconds: number; initial_texts: number; initial_voice_seconds: number }) {
+ const initial = lot.initial_texts * 9000 + lot.initial_voice_seconds * 700;
+ return initial > 0 ? Math.floor(lot.principal_cents * (lot.texts * 9000 + lot.voice_seconds * 700) / initial) : 0;
+}
 export const moneyCents = (cents: number) => (cents / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ETB';
 export const canCancel = (startsAt: string, now = Date.now()) => Date.parse(startsAt) - now >= 86400000;

@@ -46,14 +46,16 @@ export default function LoadingScreen() {
   const [quoteIndex, setQuoteIndex] = useState(0);
   const [progress, setProgress] = useState(0);
 
-  // A short, optional welcome only on the first home-page visit in this tab.
+  // Show loading screen on home page visit
   useEffect(() => {
-    if (window.location.pathname !== '/' || window.location.hash.includes('tgWebApp')) return;
-    try { if (sessionStorage.getItem('addis-welcome-seen')) return; sessionStorage.setItem('addis-welcome-seen', '1'); } catch { return; }
+    if (window.location.pathname !== '/') return;
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    const show = setTimeout(() => { setLoading(true); setQuoteIndex(Math.floor(Math.random() * quotes.length)); }, 0);
+    
+    setLoading(true);
+    setQuoteIndex(Math.floor(Math.random() * quotes.length));
+    
     const startTime = Date.now();
-    const duration = 1000;
+    const duration = 1600;
 
     const interval = setInterval(() => {
       const elapsed = Date.now() - startTime;
@@ -66,7 +68,7 @@ export default function LoadingScreen() {
       }
     }, 40);
 
-    return () => { clearTimeout(show); clearInterval(interval); };
+    return () => clearInterval(interval);
   }, []);
 
   // Lock document scrolling while full-screen loading is active

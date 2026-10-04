@@ -35,8 +35,9 @@ export async function POST(request: Request) {
    const {data:updated,error}=await db.from('appointments').update({status:input.status}).eq('id',input.id).eq('status',appointment.status).select('id');
    if(error || !updated?.length) throw new Error('Booking changed. Refresh and try again.');
   } else if(input.action==='payment') {
-   if(input.verified!==true) throw new Error('Verify the amount, recipient and reference in your bank account first.');
+   if(input.approve===true && input.verified!==true) throw new Error('Review the payment screenshot and match the amount, recipient and transaction to your bank records first.');
    const {error}=await db.rpc('review_payment',{request_id:input.id,actor:user.id,approve:input.approve===true});if(error)throw new Error(error.message);
+   if(input.approve) { const { notifyUser } = await import('@/lib/telegram-admin'); const {data:req}=await db.from('payment_requests').select('user_id,kind').eq('id',input.id).single(); if(req) void notifyUser(req.user_id, "? <b>Package Approved!</b>\n\nYour  package has been approved and added to your wallet."); }
   } else if(input.action==='refund') {
    if(input.transferred!==true) throw new Error('Complete the bank transfer before recording it.');
    const {error}=await db.rpc('complete_refund',{request_id:input.id,actor:user.id,bank_reference:input.reference});if(error)throw new Error(error.message);
@@ -63,3 +64,4 @@ export async function POST(request: Request) {
   return Response.json({ok:true});
  }catch(error){return apiError(error)}
 }
+

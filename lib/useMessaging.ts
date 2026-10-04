@@ -47,8 +47,13 @@ export function useMessaging() {
     return () => data.subscription.unsubscribe();
   }, []);
   // Initial fetch synchronizes the directory with the remote database.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { void refreshPeople(); }, [refreshPeople]);
+  useEffect(() => {
+    const initial = setTimeout(() => void refreshPeople(), 0);
+    const refresh = () => { if (document.visibilityState === 'visible') void refreshPeople(); };
+    const timer = setInterval(refresh, 30000);
+    window.addEventListener('focus', refresh);
+    return () => { clearTimeout(initial); clearInterval(timer); window.removeEventListener('focus', refresh); };
+  }, [refreshPeople]);
   useEffect(() => {
     const db = getSupabase();
     if (!db || !userId) return;
@@ -73,7 +78,7 @@ export function useMessaging() {
     }
     const channel = db.channel(`messages:${userId}`, { config: { private: true } }).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => void refresh()).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, () => void refresh()).subscribe(status => { if (status === 'SUBSCRIBED') void refresh(); });
     void refresh();
-    const timer = setInterval(() => void refresh(), 15000);
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') void refresh(); }, 60000);
     return () => { alive = false; clearInterval(timer); void db.removeChannel(channel); };
   }, [userId, historyLimit]);
   async function ensureConversation(therapist: number) {
@@ -107,8 +112,8 @@ export function useMessaging() {
       const { error } = await db.from('messages').insert({ conversation_id: conversationId, sender_id: userId, text: type === 'text' ? content.trim() : null, audio_url: audioUrl || null, duration_seconds: durationSeconds ? Math.max(1, Math.ceil(durationSeconds)) : null });
       if (error) throw new Error(error.message);
       setCloudError('');
-      return true;
-    } catch (error) { setCloudError(error instanceof Error ? error.message : 'Message failed. Please retry.'); return false; }
+      return { ok: true };
+    } catch (error) { const msg = error instanceof Error ? error.message : 'Message failed. Please retry.'; setCloudError(msg); return { ok: false, error: msg }; }
   }
   async function register(r: Registration) {
     if (!userId) throw new Error('Sign in from Account before registering.');
@@ -124,22 +129,17 @@ export function useMessaging() {
   async function updateSettings(id: number, settings: Settings) {
       const db = getSupabase();
       if (!db || id !== ownTherapistId) return false;
-      const existingPerson = people.find(p => p.id === id);
-      const updatedProfile = existingPerson ? {
-        ...existingPerson,
-        priceOnline: settings.online !== undefined && settings.online > 0 ? Number(settings.online) : existingPerson.priceOnline,
-        priceInPerson: settings.inperson !== undefined && settings.inperson > 0 ? Number(settings.inperson) : existingPerson.priceInPerson,
-      } : undefined;
-
-      const updatePayload: Record<string, unknown> = { settings };
-      if (updatedProfile) {
-        updatePayload.profile = updatedProfile;
-      }
-      const { error } = await db.from('practitioners').update(updatePayload).eq('id', id);
-      if (error) { setCloudError(error.message); return false; }
+      // Only settings are writable by practitioners; reviewed profile fields are protected.
+      const { data, error } = await db.from('practitioners').update({ settings }).eq('id', id).select('id').single();
+      if (error || !data) { setCloudError(error?.message || 'Your practice could not be updated. Please sign in again.'); return false; }
+      setCloudError('');
       setCloudSettings(current => ({ ...current, [id]: settings }));
       await refreshPeople();
       return true;
   }
-  return { userId, people, ownTherapistId, conversations, messages, cloudSettings, cloudError, activeConversation, setActiveConversation, ensureConversation, send, register, updateSettings, loadMoreMessages: () => setHistoryLimit(n => n + 100) };
+  async function markAsRead(therapistId: number) { const c = conversations.find(c => c.therapist_id === therapistId); if (!c || !userId) return; const db = getSupabase(); if (db) await db.from('conversation_reads').upsert({ conversation_id: c.id, user_id: userId, read_at: new Date().toISOString() }); window.dispatchEvent(new Event('messages-read')); }
+  return { userId, people, ownTherapistId, conversations, messages, cloudSettings, cloudError, activeConversation, setActiveConversation, ensureConversation, send, register, updateSettings, loadMoreMessages: () => setHistoryLimit(n => n + 100), markAsRead };
 }
+
+
+

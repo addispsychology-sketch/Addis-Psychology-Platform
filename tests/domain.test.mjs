@@ -10,6 +10,23 @@ const calendarSource = readFileSync(new URL('../lib/calendar.ts', import.meta.ur
 const { dateKey, shiftDate, slots, isFutureSlot } = await import('data:text/javascript,' + encodeURIComponent(stripTypeScriptTypes(calendarSource)));
 const { verifyMiniApp, equalSecret } = await import('data:text/javascript,' + encodeURIComponent(stripTypeScriptTypes(readFileSync(new URL('../lib/telegram-validation.ts', import.meta.url), 'utf8'))));
 const { normalizePhone, validateBooking } = await import('data:text/javascript,' + encodeURIComponent(stripTypeScriptTypes(readFileSync(new URL('../lib/booking-validation.ts', import.meta.url), 'utf8'))));
+const { refundableCents } = await import('data:text/javascript,' + encodeURIComponent(stripTypeScriptTypes(readFileSync(new URL('../lib/payment-policy.ts', import.meta.url), 'utf8'))));
+const { proofType } = await import('data:text/javascript,' + encodeURIComponent(stripTypeScriptTypes(readFileSync(new URL('../lib/payment-proof.ts', import.meta.url), 'utf8'))));
+
+test('refund estimate preserves principal, prorates mixed credits and excludes service fees', () => {
+ const lot = {principal_cents:48000,texts:250,voice_seconds:900,initial_texts:250,initial_voice_seconds:900};
+ assert.equal(refundableCents(lot),48000);
+ assert.equal(refundableCents({...lot,texts:125,voice_seconds:450}),24000);
+ assert.equal(refundableCents({...lot,texts:0,voice_seconds:0}),0);
+ assert.equal(refundableCents({...lot,texts:249}),47850);
+ assert.equal(refundableCents({...lot,initial_texts:0,initial_voice_seconds:0}),0);
+});
+test('payment proofs accept raster signatures and reject HTML, SVG and empty files', () => {
+ assert.equal(proofType(new Uint8Array([137,80,78,71,13,10,26,10])), 'image/png');
+ assert.equal(proofType(new Uint8Array([255,216,255])), 'image/jpeg');
+ assert.equal(proofType(new TextEncoder().encode('RIFF0000WEBP')), 'image/webp');
+ for (const value of ['', '<svg></svg>', '<html>receipt</html>']) assert.throws(() => proofType(new TextEncoder().encode(value)));
+});
 
 test('Telegram authentication rejects forgery, stale data, duplicate keys, and missing signatures', () => {
  const token = 'test-only-not-a-real-bot-token';

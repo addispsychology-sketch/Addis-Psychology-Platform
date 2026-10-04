@@ -4,12 +4,14 @@ import { getSupabase } from '@/lib/supabase';
 import type { Appointment } from '@/components/Platform';
 import { useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePlatform, statusLabel } from '@/components/Platform';
-import { Header, Footer, Photo } from '@/components/Shell';
+import { Header, Footer, Photo, Modal } from '@/components/Shell';
 import { dateKey } from '@/lib/calendar';
 import { motion } from 'framer-motion';
+import AdminBroadcast from '@/components/AdminBroadcast';
 
-type Tab = 'overview' | 'therapists' | 'clients' | 'bookings' | 'messages' | 'packages' | 'settings';
+type Tab = 'overview' | 'therapists' | 'clients' | 'bookings' | 'messages' | 'packages' | 'broadcast' | 'settings';
 
 interface AdminUser {
   id: string;
@@ -51,6 +53,7 @@ interface LivePayment {
   fee_cents?: number;
   method: string;
   reference: string;
+  proof_path?: string;
   status: 'pending' | 'approved' | 'rejected';
   created_at: string;
 }
@@ -68,15 +71,17 @@ export default function AdminPortal() {
   const [livePayments, setLivePayments] = useState<LivePayment[]>([]);
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [paymentSearch, setPaymentSearch] = useState('');
+  const [receiptUrl, setReceiptUrl] = useState('');
+  const [verifiedPayments, setVerifiedPayments] = useState<Record<string, boolean>>({});
   const [adminNotice, setAdminNotice] = useState('');
   const [busyAction, setBusyAction] = useState(false);
 
   // Default passphrase for demonstration. Set NEXT_PUBLIC_ADMIN_PASSPHRASE env var in production.
   const [auth, setAuth] = useState(false);
   const [bookings, setBookings] = useState<Appointment[]>([]);
-  async function adminRequest(init: RequestInit = {}, secret = passphrase) {
+  async function adminRequest(init: RequestInit = {}, secret = passphrase, path = '/api/admin') {
     const token = (await getSupabase()?.auth.getSession())?.data.session?.access_token;
-    return fetch('/api/admin', { ...init, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(secret ? { 'x-admin-passphrase': secret } : {}), ...init.headers } });
+    return fetch(path, { ...init, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(secret ? { 'x-admin-passphrase': secret } : {}), ...init.headers } });
   }
   function readBookings(rows: Record<string, unknown>[]) {
     return rows.map(a => { const local = new Date(Date.parse(String(a.starts_at)) + 10800000).toISOString(); return { id: String(a.id), therapist: Number(a.therapist_id), date: local.slice(0,10), time: local.slice(11,16), medium: a.medium, status: a.status, price: a.price, client: a.client_name, phone: a.phone, language: a.language } as Appointment; });
@@ -103,7 +108,7 @@ export default function AdminPortal() {
     try {
       const response = await adminRequest({
         method: 'POST',
-        body: JSON.stringify({ action: 'payment', id, verified: true, approve })
+        body: JSON.stringify({ action: 'payment', id, verified: verifiedPayments[id] === true, approve })
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Failed to review payment.');
@@ -258,6 +263,7 @@ export default function AdminPortal() {
     ['bookings', t('Bookings', 'ቀጠሮዎች'), pendingAppts.length],
     ['messages', t('Messages', 'መልዕክቶች'), allMessages.length],
     ['packages', t('Package sales', 'ጥቅሎች'), pendingPaymentsCount || undefined],
+    ['broadcast', t('Channel Broadcast', 'Channel Broadcast')],
     ['settings', t('Settings', 'ቅንብሮች')],
   ];
 
@@ -268,6 +274,7 @@ export default function AdminPortal() {
     bookings: '📅',
     messages: '💬',
     packages: '🛍️',
+    broadcast: '📢',
     settings: '⚙️',
   };
 
@@ -954,7 +961,7 @@ export default function AdminPortal() {
                       )}
                     </h2>
                     <p className="muted" style={{ margin: '4px 0 0', fontSize: '13px' }}>
-                      {t('Verify Telebirr or CBE reference, then approve or reject each request. Approval credits the client wallet immediately.', 'የTelebirr ወይም CBE ዋቢ ቁጥር ካረጋገጡ በኋላ ያጽድቁ ወይም ይሰርዙ። ሲፈቀድ ወዲያው ለደንበኛ ክሬዲት ይደርሳል።')}
+                      {t('Open the payment screenshot and match the recipient, amount and transaction to your bank records before approving. Approval adds credits immediately.', 'የTelebirr ወይም CBE ዋቢ ቁጥር ካረጋገጡ በኋላ ያጽድቁ ወይም ይሰርዙ። ሲፈቀድ ወዲያው ለደንበኛ ክሬዲት ይደርሳል።')}
                     </p>
                   </div>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -998,7 +1005,7 @@ export default function AdminPortal() {
                             <th>{t('Client ID', 'ደንበኛ')}</th>
                             <th>{t('Package', 'ጥቅል')}</th>
                             <th>{t('Amount', 'ዋጋ')}</th>
-                            <th>{t('Method · Reference', 'ዘዴ · ዋቢ')}</th>
+                            <th>{t('Method · Receipt', 'ዘዴ · ዋቢ')}</th>
                             <th>{t('Status', 'ሁኔታ')}</th>
                             <th>{t('Actions', 'ድርጊቶች')}</th>
                           </tr>
@@ -1031,7 +1038,7 @@ export default function AdminPortal() {
                                   </span>
                                   <br />
                                   <span style={{ fontFamily: 'Space Mono, monospace', fontSize: '12px', fontWeight: 700, letterSpacing: '0.05em' }}>
-                                    {p.reference}
+                                    {p.proof_path ? <button type="button" onClick={async () => { try { const result = await adminRequest({}, passphrase, '/api/payment-proof?id=' + p.id); const data = await result.json(); if (!result.ok) throw new Error(data.error); setReceiptUrl(data.url); } catch (error) { setAdminNotice(error instanceof Error ? error.message : 'Could not open screenshot.'); } }}>View payment screenshot ↗</button> : p.reference}
                                   </span>
                                 </td>
                                 <td data-label={t('Status', 'ሁኔታ')}>
@@ -1042,9 +1049,10 @@ export default function AdminPortal() {
                                 <td data-label={t('Actions', 'ድርጊቶች')}>
                                   {p.status === 'pending' ? (
                                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                      <label><input type="checkbox" checked={!!verifiedPayments[p.id]} onChange={e => setVerifiedPayments(current => ({ ...current, [p.id]: e.target.checked }))} /> Receipt matches the amount, recipient and transaction in my bank records</label>
                                       <button
                                         className="solid"
-                                        disabled={busyAction}
+                                        disabled={busyAction || !verifiedPayments[p.id]}
                                         onClick={() => void handleReviewPayment(p.id, true)}
                                         style={{ fontSize: '11px', padding: '6px 12px', background: '#2e7d32', borderColor: '#2e7d32' }}
                                       >
@@ -1127,6 +1135,12 @@ export default function AdminPortal() {
           )}
 
           {/* ══ SETTINGS ══════════════════════════════════════════ */}
+          {tab === 'broadcast' && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <h1>{t('Channel Broadcast', 'Channel Broadcast')}</h1>
+              <AdminBroadcast people={people} adminRequest={adminRequest} />
+            </motion.div>
+          )}
           {tab === 'settings' && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
               <h1>{t('Platform Governance & Settings', 'ቅንብሮች')}</h1>
@@ -1179,7 +1193,8 @@ export default function AdminPortal() {
           )}
         </main>
       </div>
-      <Footer />
+      {receiptUrl && <Modal title="Payment screenshot" close={() => setReceiptUrl('')}><p>Match the amount, recipient and transaction with your bank records before approving.</p><Image src={receiptUrl} alt="Submitted payment receipt" width={900} height={1200} unoptimized style={{width:'100%',height:'auto'}} /><a href={receiptUrl} target="_blank" rel="noopener noreferrer">Open full-size screenshot</a></Modal>}<Footer />
     </>
   );
 }
+

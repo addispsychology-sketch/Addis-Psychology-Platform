@@ -4,6 +4,7 @@ import { Platform } from "@/components/Platform";
 import LoadingScreen from "@/components/LoadingScreen";
 import OnlineTherapistPopup from "@/components/OnlineTherapistPopup";
 import TelegramBridge from "@/components/TelegramBridge";
+import MessageToast from "@/components/MessageToast";
 
 export const metadata: Metadata = {
   title: "Addis Psychology Platform",
@@ -34,6 +35,7 @@ export default function RootLayout({
           <TelegramBridge />
           <LoadingScreen />
           <OnlineTherapistPopup />
+          <MessageToast />
           {children}
         </Platform>
       </body>

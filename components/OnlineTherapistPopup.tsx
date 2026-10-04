@@ -13,27 +13,31 @@ export default function OnlineTherapistPopup() {
   const { t, people, settings } = usePlatform();
 
   const [visible, setVisible] = useState(false);
-  const [minimized, setMinimized] = useState(true);
+  const [minimized, setMinimized] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
   const [clock, setClock] = useState(() => Date.now());
   useEffect(() => { const timer = setInterval(() => setClock(Date.now()), 15000); return () => clearInterval(timer); }, []);
 
   // Find an available therapist
-  const availableTherapist = people.find(p => therapistAvailability(settings(p.id), clock).isOnline);
+  const availableTherapist = people.find(p => {
+    const s = settings(p.id);
+    return s.presence === 'available' || therapistAvailability(s, clock).isOnline;
+  });
 
   useEffect(() => {
-    // Only display after 2.5 seconds if not on chat page
-    if ((pathname === '/chat' || pathname === '/portal' || pathname === '/admin')) {
+    if (pathname === '/chat' || pathname === '/portal' || pathname.startsWith('/admin')) {
+      setVisible(false);
       return;
     }
 
     const timer = setTimeout(() => {
       setVisible(true);
-    }, 2500);
+    }, 1500);
 
     return () => clearTimeout(timer);
   }, [pathname]);
 
-  if (['/chat','/portal','/admin','/account','/packages','/wallet','/register'].includes(pathname) || pathname.startsWith('/terms') || !availableTherapist) {
+  if (dismissed || ['/chat','/portal','/admin','/register'].includes(pathname) || !availableTherapist) {
     return null;
   }
 

@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     }
     const { client, bucket } = storage();
     const uploadUrl = await getSignedUrl(client, new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: contentType, ContentLength: size }), { expiresIn: 300 });
-    return Response.json({ uploadUrl, audioUrl: `/api/voice?key=${encodeURIComponent(key)}` }, { headers });
+    return Response.json({ uploadUrl, audioUrl: `/api/voice?key=${encodeURIComponent(key)}${provider === 'supabase' ? '&storage=supabase' : ''}` }, { headers });
   } catch (error) {
     return Response.json({ error: error instanceof Error && error.message === 'Unauthorized' ? 'Unauthorized' : 'Voice upload is unavailable. Check your server configuration.' }, { status: 400, headers });
   }

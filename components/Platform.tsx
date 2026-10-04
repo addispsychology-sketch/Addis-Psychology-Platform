@@ -26,6 +26,7 @@ export type Appointment = {
 };
 
 export type Settings = {
+  lastSeenAt?: string | null;
   online: number;
   inperson: number;
   discount: number;
@@ -97,6 +98,7 @@ type API = {
   setActiveConversation: (id: string) => void;
   ensureConversation: (id: number) => Promise<string>;
   loadMoreMessages: () => void;
+  markAsRead: (therapistId: number) => Promise<void>;
   lang: 'en' | 'am';
   setLang: (lang: 'en' | 'am') => void;
   theme: 'white' | 'dark' | 'colorful';
@@ -112,7 +114,7 @@ type API = {
   settings: (id: number) => Settings;
   balance: (id: number) => Balance;
   buy: (id: number, bundle: string) => boolean;
-  send: (id: number, type: 'text' | 'voice', content: string, durationSeconds?: number) => Promise<boolean>;
+  send: (id: number, type: 'text' | 'voice', content: string, durationSeconds?: number) => Promise<{ok: boolean, error?: string}>;
   reply: (id: number, text?: string, audio?: string) => Promise<boolean>;
   updateSettings: (id: number, s: Settings) => Promise<boolean>;
   book: (a: Omit<Appointment, 'id' | 'status'>) => boolean;
@@ -230,6 +232,7 @@ export function Platform({ children }: { children: ReactNode }) {
   const api: API = {
     wallet: finances.data, refreshWallet: finances.refresh,
     loadMoreMessages: cloud.loadMoreMessages,
+    markAsRead: cloud.markAsRead,
     userId: cloud.userId, ownTherapistId: cloud.ownTherapistId, conversations: cloud.conversations,
     activeConversation: cloud.activeConversation, setActiveConversation: cloud.setActiveConversation, ensureConversation: cloud.ensureConversation,
     lang,
@@ -246,7 +249,7 @@ export function Platform({ children }: { children: ReactNode }) {
     t,
     state: { ...state, appointments: bookings.appointments },
     ready,
-    error,
+    error: cloud.cloudError || error,
     messages,
     settings,
     balance,
@@ -255,8 +258,8 @@ export function Platform({ children }: { children: ReactNode }) {
       new Date(v).toLocaleDateString(lang === 'am' ? 'am-ET' : 'en-GB', opts || { day: 'numeric', month: 'short', year: 'numeric' }),
     money: n => `${n.toLocaleString(lang === 'am' ? 'am-ET' : 'en-GB')} ${t('ETB', 'ብር')}`,
     buy: () => { window.location.assign('/packages'); return false; },
-    send: async (...args) => { const sent=await cloud.send(...args); if(sent) await finances.refresh(); return sent; },
-    reply: (id, text, audio) => cloud.send(id, audio ? 'voice' : 'text', audio || text || ''),
+    send: async (...args) => { const result=await cloud.send(...args); if(result.ok) await finances.refresh(); return result; },
+    reply: async (id, text, audio) => (await cloud.send(id, audio ? 'voice' : 'text', audio || text || '')).ok,
     updateSettings: cloud.updateSettings,
     book: () => { setError('Online booking is not enabled yet. Please contact the practice.'); return false; },
     updateAppointment: (id, patch) => { void bookings.update(id, patch); },
@@ -288,9 +291,9 @@ export function Platform({ children }: { children: ReactNode }) {
 
   return (
     <Context.Provider value={api}>
-      {(error || cloud.cloudError || bookings.error) && (
+      {(error || cloud.cloudError || bookings.error || finances.error) && (
         <div className="system-note" role="alert">
-          {cloud.cloudError || bookings.error || error}
+          {cloud.cloudError || bookings.error || finances.error || error}
         </div>
       )}
       <AudioCalls userId={cloud.userId} conversations={cloud.conversations} />
@@ -315,3 +318,5 @@ export function statusLabel(status: Appointment['status'], t: API['t']) {
     completed: t('Completed', 'የተጠናቀቀ'),
   }[status];
 }
+
+

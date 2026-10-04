@@ -12,18 +12,44 @@ import { Mic, Send, MessageSquare, Shield, Calendar, CreditCard } from 'lucide-r
 import { Photo, Modal, Page } from '@/components/Shell';
 import { bundles, discountedPrice, formatVoiceTime } from '@/lib/commerce';
 import { motion, AnimatePresence } from 'framer-motion';
-
-
-
-
+import { getSupabase } from '@/lib/supabase';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 
 function TrueFullscreenChat() {
-  const { t, people, balance, messages, send, loadMoreMessages, userId, ownTherapistId, ensureConversation, lang, settings, money, buy, theme, setTheme } = usePlatform();
+  const { t, people, balance, messages, send, loadMoreMessages, markAsRead, userId, ownTherapistId, conversations, ensureConversation, lang, settings, money, buy, theme, setTheme } = usePlatform();
+
   const params = useSearchParams();
   const initialId = Number(params.get('therapist') || (people[0] ? people[0].id : 1));
 
   const [chosenId, setSelectedId] = useState<number | null>(null);
   const selectedId = chosenId ?? (people.some(p => p.id === initialId) ? initialId : people[0]?.id ?? initialId);
+  const selectedConversationId = conversations.find(c => c.therapist_id === selectedId && c.client_id === userId)?.id;
+  const [remoteTyping, setRemoteTyping] = useState(false);
+  const typingChannel = useRef<RealtimeChannel | null>(null);
+  const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => { if (selectedId && messages.length) void markAsRead(selectedId); }, [selectedId, messages, markAsRead]);
+  useEffect(() => {
+    setRemoteTyping(false);
+    if (!selectedConversationId || !userId) return;
+    const db = getSupabase();
+    if (!db) return;
+    const channel = db.channel(`typing:${selectedConversationId}`);
+    typingChannel.current = channel;
+    channel.on('broadcast', { event: 'typing' }, (payload: { payload: { u?: string } }) => {
+      if (payload.payload.u === userId) return;
+      setRemoteTyping(true);
+      if (typingTimeout.current) clearTimeout(typingTimeout.current);
+      typingTimeout.current = setTimeout(() => setRemoteTyping(false), 3000);
+    }).subscribe();
+    return () => {
+      if (typingTimeout.current) clearTimeout(typingTimeout.current);
+      typingChannel.current = null;
+      void db.removeChannel(channel);
+    };
+  }, [selectedConversationId, userId]);
+  const notifyTyping = () => {
+    if (userId) void typingChannel.current?.send({ type: 'broadcast', event: 'typing', payload: { u: userId } });
+  };
   const [showMobileList, setShowMobileList] = useState(!params.get('therapist'));
   const [onlineOnly, setOnlineOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -34,7 +60,7 @@ function TrueFullscreenChat() {
   const [errorMessage, setErrorMessage] = useState('');
   const [purchaseNotice, setPurchaseNotice] = useState('');
   const [quickPackageModal, setQuickPackageModal] = useState(false);
-  const isTherapistTyping = false;
+  const isTherapistTyping = remoteTyping;
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
 
@@ -612,7 +638,7 @@ function TrueFullscreenChat() {
             {/* Quick Balance & Package Link in Composer */}
             <div className="native-composer-balance-bar" aria-live="polite">
               <span className="balance-tokens">
-                💬 <strong>∞</strong> {t('texts', 'ጽሑፎች')} · 🎙️ <strong>∞</strong> {t('voice min', 'የድምፅ ደቂቃ')}
+                💬 <strong>{credits.texts}</strong> {t('texts', 'ጽሑፎች')} · 🎙️ <strong>{(credits.voiceSeconds / 60).toFixed(1)}</strong> {t('voice min', 'የድምፅ ደቂቃ')}
               </span>
               <button
                 type="button"
@@ -674,7 +700,7 @@ function TrueFullscreenChat() {
                   value={inputText}
                   maxLength={2000}
                   disabled={isHoldingVoice}
-                  onChange={e => setInputText(e.target.value)}
+                  onChange={e => { setInputText(e.target.value); notifyTyping(); }}
                   onKeyDown={e => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
@@ -781,3 +807,6 @@ export default function ChatPage() {
     </Suspense>
   );
 }
+
+
+

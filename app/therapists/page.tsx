@@ -5,6 +5,7 @@ import { usePlatform } from '@/components/Platform';
 import { Page, DemoNote, Flower, Photo, Presence, Modal } from '@/components/Shell';
 import { discountedPrice } from '@/lib/commerce';
 import { dateKey, shiftDate, slots, isFutureSlot } from '@/lib/calendar';
+import { therapistAvailability } from '@/lib/presence';
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const AM_DAY_NAMES = ['እሑድ', 'ሰኞ', 'ማክሰኞ', 'ረቡዕ', 'ሐሙስ', 'ዓርብ', 'ቅዳሜ'];
@@ -12,12 +13,7 @@ const AM_DAY_NAMES = ['እሑድ', 'ሰኞ', 'ማክሰኞ', 'ረቡዕ', 'ሐ�
 function AvailabilityBlock({ id }: { id: number }) {
   const { settings, t } = usePlatform();
   const s = settings(id);
-  const now = new Date();
-  const currentHour = now.getHours();
-  const currentDay = now.getDay();
-  const chatStartH = Number(s.chatStart.split(':')[0]);
-  const chatEndH = Number(s.chatEnd.split(':')[0]);
-  const chatActive = s.chatDays.includes(currentDay) && currentHour >= chatStartH && currentHour < chatEndH;
+  const chatActive = therapistAvailability(s).isOnline;
 
   return (
     <div className="chat-availability-card">
@@ -54,7 +50,7 @@ export default function Directory() {
 
   const results = people.filter(p =>
     (!query || [p.name, p.title, ...p.specialties, ...p.languages].join(' ').toLowerCase().includes(query.toLowerCase())) &&
-    (filter === 'all' || (filter === 'available' && settings(p.id).presence === 'available') || (filter === 'saved' && state.saved.includes(p.id)))
+    (filter === 'all' || (filter === 'available' && therapistAvailability(settings(p.id)).isOnline) || (filter === 'saved' && state.saved.includes(p.id)))
   );
 
   const person = people.find(p => p.id === profileId);

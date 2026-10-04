@@ -43,6 +43,31 @@ function TherapistPortalInner() {
   const [tab, setTab] = useState<'overview' | 'chat' | 'calendar' | 'rates' | 'profile'>(linkedConversation || searchParams.get('tab') === 'chat' ? 'chat' : 'overview');
   const [showChatInfo, setShowChatInfo] = useState(false);
   const [replyText, setReplyText] = useState('');
+  const [remoteTyping, setRemoteTyping] = useState(false);
+  const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  useEffect(() => { const c = conversations.find(c => c.id === activeConversation); setActiveConvId(c ? c.id : null); }, [activeConversation, conversations]);
+  useEffect(() => {
+    if (!activeConvId || !userId) return;
+    const { getSupabase } = require('@/lib/supabase');
+    const db = getSupabase();
+    if (!db) return;
+    const ch = db.channel('typing:' + activeConvId);
+    ch.on('broadcast', { event: 'typing' }, (p: { payload: { u?: string } }) => {
+      if (p.payload.u !== userId) {
+        setRemoteTyping(true);
+        clearTimeout((window as any).typingT2);
+        (window as any).typingT2 = setTimeout(() => setRemoteTyping(false), 3000);
+      }
+    }).subscribe();
+    return () => { ch.unsubscribe(); };
+  }, [activeConvId, userId]);
+
+  const notifyTyping = () => {
+    if (!activeConvId || !userId) return;
+    const { getSupabase } = require('@/lib/supabase');
+    const db = getSupabase();
+    if (db) db.channel('typing:' + activeConvId).send({ type: 'broadcast', event: 'typing', payload: { u: userId } });
+  };
   const [reset, setReset] = useState(false);
 
   // Voice recording state for therapist
@@ -576,6 +601,7 @@ function TherapistPortalInner() {
                     })
                   )}
                   <button type="button" onClick={loadMoreMessages}>Load earlier messages</button>
+                  {remoteTyping && <div style={{ padding: '8px 16px', color: 'var(--muted-text)', fontStyle: 'italic', fontSize: '12px', alignSelf: 'flex-start' }}>Typing...</div>}
                   <div ref={chatBottomRef} />
                 </div>
 
@@ -613,7 +639,7 @@ function TherapistPortalInner() {
                         rows={2}
                         aria-label={t('Reply to client', 'ለደንበኛ ምላሽ')}
                         value={replyText}
-                        onChange={e => setReplyText(e.target.value)}
+                        onChange={e => { setReplyText(e.target.value); notifyTyping(); }}
                         placeholder={t('Type a clinical response or guidance… (Press Enter to send)', 'የሕክምና ምላሽ ይጻፉ… (ለመላክ Enter ይጫኑ)')}
                         onKeyDown={e => {
                           if (e.key === 'Enter' && !e.shiftKey) {

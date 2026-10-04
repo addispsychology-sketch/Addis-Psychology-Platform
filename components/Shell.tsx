@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import Image from 'next/image';
+import { therapistAvailability } from '@/lib/presence';
 import { usePathname } from 'next/navigation';
 import { usePlatform } from './Platform';
 import { ReactNode, useEffect, useRef, useState } from 'react';
@@ -190,7 +191,8 @@ export function Photo({
 
 export function Presence({ id }: { id: number }) {
   const { settings, t } = usePlatform();
-  const s = settings(id).presence;
+  const current = settings(id);
+  const s = therapistAvailability(current).isOnline ? 'available' : current.presence === 'busy' ? 'busy' : 'offline';
   return (
     <span className={`presence ${s}`}>
       {s === 'available'
