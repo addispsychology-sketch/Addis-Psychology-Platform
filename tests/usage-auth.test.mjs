@@ -196,7 +196,7 @@ test('idle notification checks slow down while new messages, near reminders and 
     await db.exec(`create role anon; create role authenticated; create schema private;
       create table public.notification_jobs(id bigint, delivered_at timestamptz, attempts integer default 0, due_at timestamptz, lease_until timestamptz);`);
     await db.exec(readFileSync(new URL('./cron-fixture.sql', import.meta.url), 'utf8'));
-    await db.exec(readFileSync(new URL('../supabase/migrations/20261004234118_idle_usage_reduction.sql', import.meta.url), 'utf8'));
+    await db.exec(readFileSync(new URL('../supabase/migrations/20261004234822_idle_usage_reduction.sql', import.meta.url), 'utf8'));
     const schedule = async () => (await db.query('select schedule from cron.job where jobid=1')).rows[0].schedule;
     assert.equal(await schedule(), '*/10 * * * *');
     await db.exec("insert into public.notification_jobs(id,due_at) values(1,now()+interval '20 seconds')");
