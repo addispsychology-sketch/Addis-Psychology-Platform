@@ -168,10 +168,19 @@ export function Photo({
 }) {
   const { settings, t } = usePlatform();
   const photo = src !== undefined ? src : settings(id).photo;
+  const w = large ? 210 : 88;
+  const h = large ? 252 : 106;
   return (
     <div className={`profile-photo ${large ? 'large' : ''}`}>
       {photo ? (
-        <Image src={photo} alt={name} width={large ? 210 : 88} height={large ? 252 : 106} unoptimized />
+        // blob: URLs are local previews during upload — use a plain <img> since next/image
+        // doesn't support them. CDN URLs use next/image for proper cache and optimization.
+        photo.startsWith('blob:') ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={photo} alt={name} width={w} height={h} style={{ objectFit: 'cover', width: '100%', height: '100%' }} />
+        ) : (
+          <Image src={photo} alt={name} width={w} height={h} unoptimized />
+        )
       ) : (
         <>
           <strong>
@@ -188,6 +197,7 @@ export function Photo({
     </div>
   );
 }
+
 
 export function Presence({ id }: { id: number }) {
   const { settings, t } = usePlatform();

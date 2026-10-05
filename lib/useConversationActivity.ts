@@ -2,11 +2,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { getSupabase } from './supabase';
+import { usePageVisible } from './usePageVisible';
 
 type Activity = 'typing' | 'recording' | 'idle';
 // Supabase reuses a channel with the same topic until its asynchronous leave completes.
 const closingChannels=new Map<string,Promise<unknown>>();
 export function useConversationActivity(conversationId: string | undefined, userId: string | null, recording: boolean) {
+  const visible = usePageVisible();
   const [received, setReceived] = useState<{conversation:string;state:Activity}>({conversation:'',state:'idle'});
   const channel = useRef<RealtimeChannel | null>(null);
   const subscribed = useRef(false);
@@ -24,7 +26,7 @@ export function useConversationActivity(conversationId: string | undefined, user
   useEffect(() => {
     const db=getSupabase();
     subscribed.current=false;local.current='idle';lastSent.current=0;
-    if(!db || !conversationId || !userId) return;
+    if(!db || !conversationId || !userId || !visible) return;
     let disposed=false;
     let timeout:ReturnType<typeof setTimeout>;
     const topicName=`typing:${conversationId}`;
@@ -74,7 +76,7 @@ export function useConversationActivity(conversationId: string | undefined, user
         void closing.then(forget,forget);
       }
     };
-  },[conversationId,userId]);
+  },[conversationId,userId,visible]);
   useEffect(()=>{
     if(idleTimer.current) clearTimeout(idleTimer.current);
     if(!recording) {sendActivity('idle');return;}

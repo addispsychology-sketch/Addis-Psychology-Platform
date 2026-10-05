@@ -2,8 +2,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Appointment } from '@/components/Platform';
 import { authenticatedFetch, getSupabase } from './supabase';
+import { usePageVisible } from './usePageVisible';
+import { subscribePrivate } from './realtime-lifecycle';
 
 export function useAppointments(userId: string | null) {
+  const visible = usePageVisible();
   const [snapshot, setSnapshot] = useState<{ userId: string; rows: Appointment[] } | null>(null);
   const [error, setError] = useState('');
   const pending = useRef<{ userId: string; task: Promise<void> } | null>(null);
@@ -24,17 +27,17 @@ export function useAppointments(userId: string | null) {
     try { await task; } finally { if (pending.current?.task === task) pending.current = null; }
   }, [userId]);
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || !visible) return;
     let connected = false, lastRefresh = 0;
-    const focus = () => { if (document.visibilityState === 'visible' && Date.now() - lastRefresh > 10000) { lastRefresh = Date.now(); void refresh(); } };
+    const focus = () => { if (document.visibilityState === 'visible' && Date.now() - lastRefresh > (connected ? 300000 : 10000)) { lastRefresh = Date.now(); void refresh(); } };
     const timeout = setTimeout(focus, 0);
     const interval = setInterval(() => { if (Date.now() - lastRefresh >= (connected ? 300000 : 30000)) focus(); }, 30000);
     const db = getSupabase();
-    const channel = db?.channel('appointments:' + userId, { config: { private: true } }).on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, () => void refresh()).subscribe(status => { connected = status === 'SUBSCRIBED'; if (connected) focus(); });
+    const close = db ? subscribePrivate(db, 'appointments:' + userId, channel => channel.on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, () => void refresh()).subscribe(status => { connected = status === 'SUBSCRIBED'; if (connected) focus(); })) : null;
     window.addEventListener('focus', focus);
     document.addEventListener('visibilitychange', focus);
-    return () => { clearTimeout(timeout); clearInterval(interval); window.removeEventListener('focus', focus); document.removeEventListener('visibilitychange', focus); if (db && channel) void db.removeChannel(channel); };
-  }, [refresh, userId]);
+    return () => { clearTimeout(timeout); clearInterval(interval); window.removeEventListener('focus', focus); document.removeEventListener('visibilitychange', focus); close?.(); };
+  }, [refresh, userId, visible]);
   async function update(id: string, patch: Partial<Appointment>) {
     try {
       await authenticatedFetch('/api/bookings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status: patch.status }) });

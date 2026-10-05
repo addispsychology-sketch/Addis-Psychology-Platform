@@ -5,13 +5,15 @@ import { useEffect, useState } from 'react';
 import { Home, MessageCircle, CalendarDays, Package, Wallet } from 'lucide-react';
 import { usePlatform } from './Platform';
 import { getSupabase } from '@/lib/supabase';
+import { usePageVisible } from '@/lib/usePageVisible';
 export default function ClientNav() {
+  const visible = usePageVisible();
   const { userId, ownTherapistId, t, messages } = usePlatform();
   const path = usePathname();
   const [unread, setUnread] = useState(0);
   const messageRevision = messages.length + ':' + (messages.at(-1)?.id || '');
   useEffect(() => {
-    if (!userId || ownTherapistId || path.startsWith('/admin') || path.startsWith('/portal')) return;
+    if (!userId || !visible || ownTherapistId || path.startsWith('/admin') || path.startsWith('/portal')) return;
     let alive = true;
     let loading = false;
     const refresh = async () => {
@@ -24,7 +26,7 @@ export default function ClientNav() {
     window.addEventListener('messages-read',refresh);
     const timer = setInterval(() => { if (document.visibilityState === 'visible') void refresh(); }, 300000);
     return () => { alive = false; clearInterval(timer); window.removeEventListener('messages-read',refresh); };
-  }, [userId, ownTherapistId, path, messageRevision]);
+  }, [userId, ownTherapistId, path, messageRevision, visible]);
   if (ownTherapistId || path.startsWith('/admin') || path.startsWith('/portal')) return null;
   const items = [
     { href: '/therapists', label: t('Home', 'ዋና'), icon: Home },

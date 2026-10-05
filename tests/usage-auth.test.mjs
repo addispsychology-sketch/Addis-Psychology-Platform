@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { createHash, randomUUID } from 'node:crypto';
 import ts from 'typescript';
+import { PGlite } from '@electric-sql/pglite';
 
 const require = createRequire(import.meta.url);
 function moduleAt(path, dependencies, globals = {}) {
@@ -100,18 +101,19 @@ function hooks() {
   return { react, render(fn) { cursor = 0; return fn(); }, flush() { const jobs = pending; pending = []; jobs.forEach(fn => fn()); }, close() { effects.forEach(effect => effect?.cleanup?.()); } };
 }
 
-test('live messages and practitioner heartbeats update the UI without downloading history or photos again', async () => {
-  const h = hooks(), channels = [], timers = new Map(); let seq = 0, directoryGets = 0;
+test('live messages update locally, hidden tabs release subscriptions, and returning resynchronizes missed messages', async () => {
+  const h = hooks(), channels = [], removed = [], timers = new Map(); let seq = 0, directoryGets = 0, visible = true;
   const thread = { id: 'conversation', client_id: 'client', therapist_id: 1 };
   const row = { id: 'message-1', conversation_id: thread.id, sender_id: 'therapist', text: 'Hello', created_at: '2026-10-04T20:00:00Z' };
   const practitioner = { id: 1, approved: true, user_id: 'therapist', profile: { name: 'Practitioner' }, settings: { online: 100, photo: 'https://example.com/photo.jpg' }, last_seen_at: '2026-10-04T20:00:00Z' };
   const db = database({ conversations: [thread], messages: [row], conversation_reads: [{ user_id: 'client', conversation_id: thread.id, read_at: row.created_at }] });
   db.auth = { onAuthStateChange(fn) { fn('SIGNED_IN', { user: { id: 'client' } }); return { data: { subscription: { unsubscribe() {} } } }; } };
   db.channel = name => { const channel = { name, handlers: [], on(type, filter, fn) { channel.handlers.push({ type, filter, fn }); return channel; }, subscribe(fn) { fn?.('SUBSCRIBED'); return channel; } }; channels.push(channel); return channel; };
-  db.removeChannel = async () => {};
+  db.removeChannel = async channel => { removed.push(channel.name); };
   const browser = new EventTarget(), document = Object.assign(new EventTarget(), { visibilityState: 'visible' });
   const timer = fn => { const id = ++seq; timers.set(id, fn); return id; };
-  const { useMessaging } = moduleAt('lib/useMessaging.ts', { react: h.react, './supabase': { getSupabase: () => db }, './voice': {} }, {
+  const lifecycle = moduleAt('lib/realtime-lifecycle.ts', {});
+  const { useMessaging } = moduleAt('lib/useMessaging.ts', { react: h.react, './supabase': { getSupabase: () => db }, './voice': {}, './usePageVisible': { usePageVisible: () => visible }, './realtime-lifecycle': lifecycle }, {
     window: browser, document, fetch: async () => { directoryGets++; return Response.json([practitioner]); },
     setTimeout: timer, clearTimeout: id => timers.delete(id), setInterval: timer, clearInterval: id => timers.delete(id)
   });
@@ -137,5 +139,82 @@ test('live messages and practitioner heartbeats update the UI without downloadin
     assert.equal(directoryGets, before);
     receive({ eventType: 'DELETE', old: { id: next.id } });
     assert.equal(h.render(useMessaging).messages.length, 1);
+    visible = false; document.visibilityState = 'hidden';
+    h.render(useMessaging); h.flush();
+    assert.ok(removed.includes('messages:client') && removed.includes('directory:client'));
+    const pausedQueries = db.queries.length;
+    for (const fn of [...timers.values()]) fn();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(db.queries.length, pausedQueries);
+    db.tables.messages.push(next);
+    visible = true; document.visibilityState = 'visible';
+    h.render(useMessaging); h.flush();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.render(useMessaging).messages.length, 2);
+    assert.equal(channels.filter(c => c.name === 'messages:client').length, 2);
   } finally { h.close(); }
+});
+
+test('short visibility changes keep subscriptions and abandoned tabs pause after thirty seconds', () => {
+  const document = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+  const timers = new Map(); let seq = 0, subscribe, snapshot, updates = 0;
+  const { usePageVisible } = moduleAt('lib/usePageVisible.ts', { react: { useSyncExternalStore(sub, get, server) { subscribe = sub; snapshot = get; assert.equal(server(), true); return get(); } } }, {
+    document, setTimeout: fn => { const id = ++seq; timers.set(id, fn); return id; }, clearTimeout: id => timers.delete(id)
+  });
+  assert.equal(usePageVisible(), true);
+  const close = subscribe(() => updates++);
+  document.visibilityState = 'hidden'; document.dispatchEvent(new Event('visibilitychange'));
+  assert.equal(snapshot(), true);
+  document.visibilityState = 'visible'; document.dispatchEvent(new Event('visibilitychange'));
+  assert.equal(timers.size, 0);
+  document.visibilityState = 'hidden'; document.dispatchEvent(new Event('visibilitychange'));
+  [...timers.values()][0]();
+  assert.equal(snapshot(), false);
+  document.visibilityState = 'visible'; document.dispatchEvent(new Event('visibilitychange'));
+  assert.equal(snapshot(), true);
+  assert.equal(updates, 2);
+  close();
+});
+
+test('rapid channel rejoin waits for the prior asynchronous leave and cancelled joins stay cancelled', async () => {
+  const { subscribePrivate } = moduleAt('lib/realtime-lifecycle.ts', {});
+  let count = 0, leave;
+  const db = { channel: () => { count++; return {}; }, removeChannel: () => new Promise(resolve => { leave = resolve; }) };
+  const close = subscribePrivate(db, 'same-topic', channel => channel);
+  close();
+  const cancel = subscribePrivate(db, 'same-topic', channel => channel);
+  assert.equal(count, 1);
+  cancel(); leave(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(count, 1);
+  subscribePrivate(db, 'same-topic', channel => channel);
+  assert.equal(count, 2);
+});
+
+test('idle notification checks slow down while new messages, near reminders and retries restore minute delivery', async () => {
+  const db = new PGlite();
+  try {
+    await db.exec(`create role anon; create role authenticated; create schema private;
+      create table public.notification_jobs(id bigint, delivered_at timestamptz, attempts integer default 0, due_at timestamptz, lease_until timestamptz);`);
+    await db.exec(readFileSync(new URL('./cron-fixture.sql', import.meta.url), 'utf8'));
+    await db.exec(readFileSync(new URL('../supabase/migrations/20261004234118_idle_usage_reduction.sql', import.meta.url), 'utf8'));
+    const schedule = async () => (await db.query('select schedule from cron.job where jobid=1')).rows[0].schedule;
+    assert.equal(await schedule(), '*/10 * * * *');
+    await db.exec("insert into public.notification_jobs(id,due_at) values(1,now()+interval '20 seconds')");
+    assert.equal(await schedule(), '* * * * *');
+    await db.exec("update public.notification_jobs set due_at=now()+interval '1 day'");
+    assert.equal(await schedule(), '*/10 * * * *');
+    await db.exec("alter table public.notification_jobs disable trigger notification_schedule_changed; update public.notification_jobs set due_at=now()+interval '14 minutes'; alter table public.notification_jobs enable trigger notification_schedule_changed; select private.wake_notifications()");
+    assert.equal(await schedule(), '* * * * *');
+    await db.exec("update public.notification_jobs set lease_until=now()+interval '1 hour'");
+    assert.equal(await schedule(), '*/10 * * * *');
+    await db.exec("update public.notification_jobs set lease_until=now()+interval '5 minutes'");
+    assert.equal(await schedule(), '* * * * *');
+    await db.exec('update public.notification_jobs set attempts=8');
+    assert.equal(await schedule(), '*/10 * * * *');
+    await db.exec('update public.notification_jobs set attempts=1');
+    assert.equal(await schedule(), '* * * * *');
+    await db.exec('update public.notification_jobs set delivered_at=now()');
+    assert.equal(await schedule(), '*/10 * * * *');
+    assert.equal((await db.query("select has_function_privilege('authenticated','private.tune_notification_schedule()','execute') as allowed")).rows[0].allowed, false);
+  } finally { await db.close(); }
 });

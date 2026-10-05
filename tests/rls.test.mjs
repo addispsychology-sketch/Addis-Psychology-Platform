@@ -28,6 +28,7 @@ test('migration enforces participant access, sender identity, and approval privi
       grant select, insert on realtime.messages to authenticated;
       create publication supabase_realtime;
     `);
+    await db.exec(readFileSync(new URL('./cron-fixture.sql', import.meta.url), 'utf8'));
     const migrations = new URL('../supabase/migrations/', import.meta.url);
     for (const file of readdirSync(migrations).filter(name => name.endsWith('.sql')).sort()) {
       // pg_cron and pg_net are hosted scheduler APIs; exercise application SQL unchanged.

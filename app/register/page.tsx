@@ -35,6 +35,8 @@ export default function RegisterPage() {
   const [createdId, setCreatedId] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [agree, setAgree] = useState(false);
+  // Local blob URL for instant sidebar preview while the photo is still uploading
+  const [localPhotoPreview, setLocalPhotoPreview] = useState('');
 
   const [form, setForm] = useState<Registration>(
     state.registration || {
@@ -224,7 +226,7 @@ export default function RegisterPage() {
               <div className="registration-preview-box">
                 <span className="eyebrow">{t('LIVE DIRECTORY CARD PREVIEW', 'የመገለጫ ቅድመ-እይታ')}</span>
                 <div style={{ marginTop: '16px' }}>
-                  <Photo id={0} name={form.name || t('Your Name', 'የእርስዎ ስም')} large src={form.photo} />
+                  <Photo id={0} name={form.name || t('Your Name', 'የእርስዎ ስም')} large src={form.photo || localPhotoPreview} />
                 </div>
                 <h3 style={{ margin: '14px 0 4px', fontSize: '18px' }}>
                   {form.name || t('Dr. Jane Doe', 'ዶ/ር ስም')}
@@ -337,6 +339,7 @@ export default function RegisterPage() {
                         <PhotoUpload
                           value={form.photo}
                           onChange={v => update('photo', v)}
+                          onLocalPreview={setLocalPhotoPreview}
                         />
                       </div>
                     </motion.div>

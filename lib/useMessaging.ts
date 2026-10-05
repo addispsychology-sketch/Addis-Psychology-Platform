@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getSupabase } from './supabase';
 import { uploadVoice } from './voice';
+import { usePageVisible } from './usePageVisible';
+import { subscribePrivate } from './realtime-lifecycle';
 import type { Therapist } from './data';
 import type { Message, Registration, Settings } from '@/components/Platform';
 
@@ -13,6 +15,7 @@ const messageColumns = 'id,conversation_id,sender_id,text,audio_url,duration_sec
 const conversationColumns = 'id,client_id,therapist_id';
 const mappedMessage = (m: MessageRow, c: Conversation): Message => ({ id: m.id, conversationId: c.id, therapist: c.therapist_id, from: m.sender_id === c.client_id ? 'client' : 'therapist', text: m.text || undefined, audio: m.audio_url || undefined, durationSeconds: m.duration_seconds, at: m.created_at, editedAt: m.edited_at });
 export function useMessaging() {
+  const visible = usePageVisible();
   const [userId, setUserId] = useState<string | null>(null);
   const identity = useRef<string | null>(null);
   const [people, setPeople] = useState<Therapist[]>([]);
@@ -29,6 +32,7 @@ export function useMessaging() {
   const [historyLimit, setHistoryLimit] = useState(100);
   const directoryRequest = useRef<{ userId: string | null; task: Promise<void> } | null>(null);
   const threadSnapshot = useRef<Conversation[]>([]);
+  const activitySent = useRef<{ userId: string; at: number } | null>(null);
   const refreshPeople = useCallback(async () => {
     if (directoryRequest.current?.userId === userId) return directoryRequest.current.task;
     const task = (async () => {
@@ -68,11 +72,13 @@ export function useMessaging() {
   }, []);
   // Initial fetch synchronizes the directory with the remote database.
   useEffect(() => {
+    if (!visible) return;
+    let lastRefresh = Date.now();
     const initial = setTimeout(() => void refreshPeople(), 0);
-    const refresh = () => { if (document.visibilityState === 'visible') void refreshPeople(); };
+    const refresh = () => { if (document.visibilityState === 'visible' && Date.now() - lastRefresh >= (userId ? 300000 : 60000)) { lastRefresh = Date.now(); void refreshPeople(); } };
     const timer = setInterval(refresh, userId ? 300000 : 60000);
     const db = getSupabase();
-    const directory = db && userId ? db.channel('directory:' + userId, { config: { private: true } }).on('postgres_changes', { event: '*', schema: 'public', table: 'practitioners' }, payload => {
+    const closeDirectory = db && userId ? subscribePrivate(db, 'directory:' + userId, channel => channel.on('postgres_changes', { event: '*', schema: 'public', table: 'practitioners' }, payload => {
       if (identity.current !== userId) return;
       const row = payload.new as DirectoryRow;
       if (payload.eventType === 'DELETE') { setPeople(current => current.filter(p => p.id !== payload.old.id)); return; }
@@ -81,22 +87,26 @@ export function useMessaging() {
       setPeople(current => visible ? [...current.filter(p => p.id !== row.id), directoryPerson(row)].sort((a, b) => a.id - b.id) : current.filter(p => p.id !== row.id));
       setCloudSettings(current => { const next = { ...current }; if (visible) next[row.id] = { ...row.settings, lastSeenAt: row.last_seen_at }; else delete next[row.id]; return next; });
       if (row.user_id === userId) setOwnTherapistId(row.id);
-    }).subscribe() : null;
+    }).subscribe()) : null;
     window.addEventListener('focus', refresh);
-    return () => { clearTimeout(initial); clearInterval(timer); window.removeEventListener('focus', refresh); if(db && directory) void db.removeChannel(directory); };
-  }, [refreshPeople,userId]);
+    return () => { clearTimeout(initial); clearInterval(timer); window.removeEventListener('focus', refresh); closeDirectory?.(); };
+  }, [refreshPeople,userId,visible]);
   useEffect(() => {
     const db=getSupabase();
-    if(!db || !userId) return;
-    const touch=()=>{ if(document.visibilityState==='visible') void db.rpc('touch_activity').then(({error})=>{ if(error) console.warn('Presence update unavailable'); }); };
+    if(!db || !userId || !visible) return;
+    const touch=()=>{
+      if(document.visibilityState!=='visible' || (activitySent.current?.userId===userId && Date.now()-activitySent.current.at<50000)) return;
+      const sent={userId,at:Date.now()}; activitySent.current=sent;
+      void db.rpc('touch_activity').then(({error})=>{ if(error) { if(activitySent.current===sent) activitySent.current=null; console.warn('Presence update unavailable'); } });
+    };
     touch();
     const timer=setInterval(touch,60000);
     document.addEventListener('visibilitychange',touch);
     return ()=>{clearInterval(timer);document.removeEventListener('visibilitychange',touch);};
-  },[userId]);
+  },[userId,visible]);
   useEffect(() => {
     const db = getSupabase();
-    if (!db || !userId) return;
+    if (!db || !userId || !visible) return;
     let alive = true;
     let loading = false, rerun = false, connected = false;
     async function refresh() {
@@ -127,7 +137,7 @@ export function useMessaging() {
       } finally { loading = false; if (rerun && alive) { rerun = false; void refresh(); } }
     }
     const initial = setTimeout(() => void refresh(), 1500);
-    const channel = db.channel(`messages:${userId}`, { config: { private: true } }).on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, payload => {
+    const closeMessages = subscribePrivate(db, `messages:${userId}`, channel => channel.on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, payload => {
       if (!alive || identity.current !== userId) return;
       if (loading) { rerun = true; return; }
       if (payload.eventType === 'DELETE') { setMessages(current => current.filter(m => m.id !== payload.old.id)); return; }
@@ -139,13 +149,13 @@ export function useMessaging() {
     }).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, () => void refresh()).subscribe(status => {
       connected = status === 'SUBSCRIBED';
       if (connected) { clearTimeout(initial); void refresh(); }
-    });
+    }));
     let lastRecovery = Date.now();
-    const resume = () => { if (document.visibilityState === 'visible') { lastRecovery = Date.now(); void refresh(); } };
+    const resume = () => { if (document.visibilityState === 'visible' && (!connected || Date.now() - lastRecovery >= 300000)) { lastRecovery = Date.now(); void refresh(); } };
     const timer = setInterval(() => { if (document.visibilityState === 'visible' && Date.now() - lastRecovery >= (connected ? 300000 : 30000)) { lastRecovery = Date.now(); void refresh(); } }, 30000);
     document.addEventListener('visibilitychange', resume);
-    return () => { alive = false; clearTimeout(initial); clearInterval(timer); document.removeEventListener('visibilitychange', resume); void db.removeChannel(channel); };
-  }, [userId, historyLimit]);
+    return () => { alive = false; clearTimeout(initial); clearInterval(timer); document.removeEventListener('visibilitychange', resume); closeMessages(); };
+  }, [userId, historyLimit, visible]);
   async function ensureConversation(therapist: number) {
     const db = getSupabase();
     if (!db || !userId) throw new Error('Please sign in from Account first.');
