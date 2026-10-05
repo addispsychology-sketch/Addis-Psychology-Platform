@@ -60,7 +60,11 @@ test('Telegram website approval is browser-bound, expires, consumes once and nev
   const prior = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME;
   process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME = 'test_bot';
   const begin = link => route.POST(new NextRequest('https://example.com/api/telegram/login', { method: 'POST', headers: { Origin: 'https://example.com', 'Content-Type': 'application/json' }, body: JSON.stringify({ link }) }));
-  const poll = (id, cookie = '') => route.GET(new NextRequest('https://example.com/api/telegram/login?id=' + id, { headers: { cookie } }));
+  const poll = (id, cookie = '') => route.POST(new NextRequest('https://example.com/api/telegram/login', {
+    method: 'POST',
+    headers: { Origin: 'https://example.com', 'Content-Type': 'application/json', cookie },
+    body: JSON.stringify({ checkId: id })
+  }));
   try {
     const start = await begin(false), { id, url } = await start.json();
     const cookie = start.headers.get('set-cookie').split(';')[0];

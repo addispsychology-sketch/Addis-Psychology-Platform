@@ -43,7 +43,11 @@ try {
   assert.equal(start.status, 200);
   const started = await start.json(); requestId = started.id;
   const cookie = start.headers.get('set-cookie').split(';')[0];
-  const poll = cookieValue => fetch(origin + '/api/telegram/login?id=' + requestId, { headers: { Cookie: cookieValue } });
+  const poll = cookieValue => fetch(origin + '/api/telegram/login', {
+    method: 'POST',
+    headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: cookieValue },
+    body: JSON.stringify({ checkId: requestId })
+  });
   assert.equal((await poll('')).status, 400);
   assert.equal((await (await poll(cookie)).json()).pending, true);
   const approve = await post('/api/telegram/auth', { initData: launch(600), link: true, browserLoginId: requestId }, signedIn.session.access_token);

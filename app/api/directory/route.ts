@@ -1,11 +1,26 @@
-import { getPublicSupabase } from '@/lib/supabase';
+﻿import { getPublicSupabase } from '@/lib/supabase';
+
+type DirectoryEntry = {
+  id: number;
+  profile: Record<string, unknown> | null;
+  settings: Record<string, unknown> | null;
+  approved: boolean;
+  last_seen_at: string | null;
+};
+
+let cache: { at: number; data: DirectoryEntry[] } | null = null;
 
 export async function GET() {
+  if (cache && Date.now() - cache.at < 10 * 60_000) {
+    return Response.json(cache.data, { headers: { 'Cache-Control': 'public, max-age=600' } });
+  }
+
   const db = getPublicSupabase();
   if (!db) return Response.json({ error: 'Directory unavailable.' }, { status: 503 });
-  // This client is always anonymous: pending profiles and private accounts cannot
-  // enter the shared CDN cache, even when the requesting browser is signed in.
+
   const { data, error } = await db.from('practitioners').select('id,profile,settings,approved,last_seen_at').eq('approved', true).order('id');
   if (error) return Response.json({ error: 'Directory unavailable.' }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
-  return Response.json(data, { headers: { 'Cache-Control': 'public, max-age=15, s-maxage=30, stale-while-revalidate=30' } });
+
+  cache = { at: Date.now(), data };
+  return Response.json(data, { headers: { 'Cache-Control': 'public, max-age=600' } });
 }

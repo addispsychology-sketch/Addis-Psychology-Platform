@@ -15,7 +15,7 @@ export function useAppointments(userId: string | null) {
     if (!db || !userId) return;
     if (pending.current?.userId === userId) return pending.current.task;
     const task = (async () => {
-    const { data, error } = await db.from('appointments').select('id,therapist_id,starts_at,medium,status,price,client_name,phone,language').order('starts_at', { ascending: false }).limit(500);
+    const { data, error } = await db.from('appointments').select('id,therapist_id,starts_at,medium,status,price,client_name,phone,language').order('starts_at', { ascending: false }).limit(50);
     if (error) { setError('Appointments could not be loaded. Please refresh or try again shortly.'); return; }
     setError('');
     setSnapshot({ userId, rows: (data || []).map(a => {
@@ -31,12 +31,11 @@ export function useAppointments(userId: string | null) {
     let connected = false, lastRefresh = 0;
     const focus = () => { if (document.visibilityState === 'visible' && Date.now() - lastRefresh > (connected ? 300000 : 10000)) { lastRefresh = Date.now(); void refresh(); } };
     const timeout = setTimeout(focus, 0);
-    const interval = setInterval(() => { if (Date.now() - lastRefresh >= (connected ? 300000 : 30000)) focus(); }, 30000);
     const db = getSupabase();
     const close = db ? subscribePrivate(db, 'appointments:' + userId, channel => channel.on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, () => void refresh()).subscribe(status => { connected = status === 'SUBSCRIBED'; if (connected) focus(); })) : null;
     window.addEventListener('focus', focus);
     document.addEventListener('visibilitychange', focus);
-    return () => { clearTimeout(timeout); clearInterval(interval); window.removeEventListener('focus', focus); document.removeEventListener('visibilitychange', focus); close?.(); };
+    return () => { clearTimeout(timeout); window.removeEventListener('focus', focus); document.removeEventListener('visibilitychange', focus); close?.(); };
   }, [refresh, userId, visible]);
   async function update(id: string, patch: Partial<Appointment>) {
     try {

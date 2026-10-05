@@ -1,41 +1,51 @@
-'use client';
 import { authenticatedFetch, getSupabase } from './supabase';
+
+type TelegramAuthResult = {
+  session?: { access_token: string; refresh_token: string };
+  needsAccount?: boolean;
+  linked?: boolean;
+  pending?: boolean;
+  id?: string;
+  url?: string;
+};
 
 type TelegramWebApp = {
   initData: string;
+  initDataUnsafe?: { start_param?: string };
   ready: () => void;
   expand: () => void;
-  openTelegramLink: (url: string) => void;
   BackButton: { show: () => void; hide: () => void; onClick: (fn: () => void) => void; offClick: (fn: () => void) => void };
 };
 declare global {
   interface Window { Telegram?: { WebApp?: TelegramWebApp }; }
 }
 
-// Preserve signed launch data across navigation and refresh. The server verifies it;
-// initDataUnsafe and a Telegram ID from the URL are never proof of identity.
 export function telegramInitData() {
-  const fromUrl = new URLSearchParams(window.location.hash.slice(1)).get('tgWebAppData') || new URLSearchParams(window.location.search).get('tgWebAppData');
-  const data = window.Telegram?.WebApp?.initData || fromUrl;
-  try {
-    if (data) { sessionStorage.setItem('addis-telegram-launch', data); return data; }
-    return sessionStorage.getItem('addis-telegram-launch') || '';
-  } catch { return data || ''; }
+  const init = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
+  return init ? init : null;
 }
 
-async function jsonRequest(path: string, init: RequestInit = {}) {
-  const response = await fetch(path, { ...init, cache: 'no-store' });
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error || 'Unable to sign in. Please try again.');
-  return body;
+export function telegramLaunchData() {
+  const launch = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initDataUnsafe : undefined;
+  return launch ? launch : null;
 }
 
-let pending: Promise<Record<string, unknown>> | undefined;
-export function telegramSignIn(link = false, create = true) {
+async function jsonRequest(url: string, init: RequestInit): Promise<TelegramAuthResult> {
+  const response = await fetch(url, init);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Server error');
+  return data;
+}
+
+let pending: Promise<TelegramAuthResult> | null = null;
+export async function telegramSignIn(link = false, create = false) {
   if (pending) return pending;
   const initData = telegramInitData();
-  // Keep user activation: mobile browsers block a popup opened after a fetch.
-  const popup = !initData ? window.open('about:blank', '_blank') : null;
+  const width = 500, height = 650;
+  const left = window.innerWidth / 2 - width / 2;
+  const top = window.innerHeight / 2 - height / 2;
+  const popup = initData ? null : window.open('', 'telegram-auth', `width=${width},height=${height},left=${left},top=${top},toolbar=0,status=0`);
+
   const request = link ? authenticatedFetch : jsonRequest;
   const task = (async () => {
     let result;
@@ -48,10 +58,12 @@ export function telegramSignIn(link = false, create = true) {
         window.dispatchEvent(new CustomEvent('telegram-browser-login', { detail: { url: started.url } }));
         if (popup) popup.location.href = started.url;
         const deadline = Date.now() + 300000;
+        let delay = 2000;
         while (Date.now() < deadline) {
-          await new Promise(resolve => setTimeout(resolve, 4000));
+          await new Promise(resolve => setTimeout(resolve, delay));
+          if (delay < 10000) delay = Math.min(delay * 2, 10000);
           if (document.visibilityState !== 'visible') continue;
-          result = await request('/api/telegram/login?id=' + encodeURIComponent(started.id));
+          result = await request('/api/telegram/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checkId: started.id }) });
           if (!result.pending) break;
         }
         if (!result || result.pending) throw new Error('Telegram sign-in timed out. Please start again.');
@@ -68,6 +80,5 @@ export function telegramSignIn(link = false, create = true) {
     return result;
   })();
   pending = task;
-  void task.finally(() => { if (pending === task) pending = undefined; }).catch(() => {});
-  return task;
+  try { return await task; } finally { if (pending === task) pending = null; }
 }

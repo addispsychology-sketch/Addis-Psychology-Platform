@@ -32,9 +32,12 @@ test('migration enforces participant access, sender identity, and approval privi
     const migrations = new URL('../supabase/migrations/', import.meta.url);
     for (const file of readdirSync(migrations).filter(name => name.endsWith('.sql')).sort()) {
       // pg_cron and pg_net are hosted scheduler APIs; exercise application SQL unchanged.
-      const sql=readFileSync(new URL(file,migrations),'utf8').replace(/^create extension if not exists pg_(cron|net).*;$/gm,'').replace(/^select cron.schedule.*;$/gm,'');
+      const sql=readFileSync(new URL(file,migrations),'utf8').replace(/^create extension if not exists pg_(cron|net).*;$/gm,'');
       await db.exec(sql);
     }
+    assert.equal((await db.query("select schedule from cron.job where jobname = 'addis-notification-delivery'")).rows[0].schedule, '*/5 * * * *');
+    assert.equal((await db.query("select count(*)::int as count from cron.job_run_details where end_time < now() - interval '1 day'")).rows[0].count, 0);
+    assert.equal((await db.query("select count(*)::int as count from cron.job_run_details")).rows[0].count, 1);
     assert.equal((await db.query("select has_function_privilege('authenticated', 'public.claim_phone_login(text,integer)', 'execute') as allowed")).rows[0].allowed, false);
     await db.exec('set role service_role');
     for (let attempt = 1; attempt <= 10; attempt++) {

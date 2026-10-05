@@ -76,7 +76,7 @@ export function useMessaging() {
     let lastRefresh = Date.now();
     const initial = setTimeout(() => void refreshPeople(), 0);
     const refresh = () => { if (document.visibilityState === 'visible' && Date.now() - lastRefresh >= (userId ? 300000 : 60000)) { lastRefresh = Date.now(); void refreshPeople(); } };
-    const timer = setInterval(refresh, userId ? 300000 : 60000);
+
     const db = getSupabase();
     const closeDirectory = db && userId ? subscribePrivate(db, 'directory:' + userId, channel => channel.on('postgres_changes', { event: '*', schema: 'public', table: 'practitioners' }, payload => {
       if (identity.current !== userId) return;
@@ -89,18 +89,18 @@ export function useMessaging() {
       if (row.user_id === userId) setOwnTherapistId(row.id);
     }).subscribe()) : null;
     window.addEventListener('focus', refresh);
-    return () => { clearTimeout(initial); clearInterval(timer); window.removeEventListener('focus', refresh); closeDirectory?.(); };
+    return () => { clearTimeout(initial);  window.removeEventListener('focus', refresh); closeDirectory?.(); };
   }, [refreshPeople,userId,visible]);
   useEffect(() => {
     const db=getSupabase();
     if(!db || !userId || !visible) return;
     const touch=()=>{
-      if(document.visibilityState!=='visible' || (activitySent.current?.userId===userId && Date.now()-activitySent.current.at<50000)) return;
+      if(document.visibilityState!=='visible' || (activitySent.current?.userId===userId && Date.now()-activitySent.current.at<250000)) return;
       const sent={userId,at:Date.now()}; activitySent.current=sent;
       void db.rpc('touch_activity').then(({error})=>{ if(error) { if(activitySent.current===sent) activitySent.current=null; console.warn('Presence update unavailable'); } });
     };
     touch();
-    const timer=setInterval(touch,60000);
+    const timer=setInterval(touch,300000);
     document.addEventListener('visibilitychange',touch);
     return ()=>{clearInterval(timer);document.removeEventListener('visibilitychange',touch);};
   },[userId,visible]);
@@ -152,9 +152,9 @@ export function useMessaging() {
     }));
     let lastRecovery = Date.now();
     const resume = () => { if (document.visibilityState === 'visible' && (!connected || Date.now() - lastRecovery >= 300000)) { lastRecovery = Date.now(); void refresh(); } };
-    const timer = setInterval(() => { if (document.visibilityState === 'visible' && Date.now() - lastRecovery >= (connected ? 300000 : 30000)) { lastRecovery = Date.now(); void refresh(); } }, 30000);
+
     document.addEventListener('visibilitychange', resume);
-    return () => { alive = false; clearTimeout(initial); clearInterval(timer); document.removeEventListener('visibilitychange', resume); closeMessages(); };
+    return () => { alive = false; clearTimeout(initial);  document.removeEventListener('visibilitychange', resume); closeMessages(); };
   }, [userId, historyLimit, visible]);
   async function ensureConversation(therapist: number) {
     const db = getSupabase();
@@ -240,6 +240,5 @@ export function useMessaging() {
   const unreadConversation=(id:string)=>messages.filter(m=>m.conversationId===id && m.from===(ownTherapistId?'client':'therapist') && Date.parse(m.at)>Date.parse(reads[id]||'1970-01-01')).length;
   return { userId, people, directoryReady, directoryError, refreshPeople, ownTherapistId, conversations, messages, messagesReady, unreadConversation, cloudSettings, cloudError, activeConversation, setActiveConversation, ensureConversation, send, editMessage, register, updateSettings, loadMoreMessages: () => setHistoryLimit(n => n + 100), markAsRead };
 }
-
 
 
